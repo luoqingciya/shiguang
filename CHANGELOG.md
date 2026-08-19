@@ -2,6 +2,12 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.1] - 2026-08-19
+
+### Fixed
+
+- **降低顶层依赖面，修复打包（EXE）环境加载失败**：`Pillow` 与 `lunar-python` 由顶层导入改为惰性导入（`pixiv/downloader.py`、`checkin/cache.py`、`checkin/content.py`）——依赖未装齐时插件仍可加载并出现在插件列表，相关功能（图片校验/尺寸、农历节日）按需降级，不再因缺包导致整个插件加载失败。
+
 ## [1.0.0] - 2026-08-19（首个发布）
 
 由 AstrBot 插件「画境拾珍」（astrbot_plugin_get_px v3.5.1，MIT）移植至 Qingci-Bot 生态。

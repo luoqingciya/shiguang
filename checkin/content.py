@@ -5,8 +5,6 @@ import re
 from dataclasses import dataclass
 from datetime import date
 
-from lunar_python import Solar
-
 from .holiday import OnlineHoliday
 from .models import CheckinProfile, CheckinRecord
 
@@ -231,7 +229,13 @@ def _built_in_event(day: date) -> tuple[str, str, str] | None:
     solar = _SOLAR_EVENTS.get((day.month, day.day))
     if solar:
         return solar
-    festivals = Solar.fromYmd(day.year, day.month, day.day).getLunar().getFestivals()
+    try:
+        # lunar-python 惰性导入：缺包时跳过农历节日（插件仍可加载）
+        from lunar_python import Solar
+
+        festivals = Solar.fromYmd(day.year, day.month, day.day).getLunar().getFestivals()
+    except Exception:
+        return None
     for festival in festivals:
         lunar = _LUNAR_EVENTS.get(festival)
         if lunar:

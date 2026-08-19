@@ -10,7 +10,6 @@ from collections.abc import Iterable
 from urllib.parse import urlsplit, urlunsplit
 
 import aiohttp
-from PIL import Image, UnidentifiedImageError
 
 logger = logging.getLogger(__name__)
 
@@ -239,6 +238,9 @@ class ImageDownloader:
                             raise _too_large_error(size)
                         f.write(chunk)
             try:
+                # Pillow 惰性导入：缺包时下载结果不做图片校验（插件仍可加载）
+                from PIL import Image, UnidentifiedImageError
+
                 with Image.open(path) as image:
                     image.verify()
             except (OSError, UnidentifiedImageError) as exc:

@@ -17,8 +17,6 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from PIL import Image
-
 logger = logging.getLogger(__name__)
 
 
@@ -361,6 +359,9 @@ def is_valid_card_jpeg(path: Path, expected_size: tuple[int, int]) -> bool:
 
 def _card_jpeg_rejection_reason(path: Path, expected_size: tuple[int, int]) -> str | None:
     try:
+        # Pillow 惰性导入：缺包时跳过尺寸校验（插件仍可加载）
+        from PIL import Image
+
         with Image.open(path) as image:
             if image.format != "JPEG":
                 return "format_mismatch"
