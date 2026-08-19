@@ -1,0 +1,5 @@
+pixivpy-async
+aiohttp
+Pillow
+lunar-python
+jinja2

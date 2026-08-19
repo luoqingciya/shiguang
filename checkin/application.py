@@ -1,0 +1,695 @@
+from __future__ import annotations
+
+import asyncio
+import logging
+from dataclasses import dataclass, replace
+from pathlib import Path
+
+from .._event import EventAdapter, Image, Plain
+from .birthday import birthday_matches, parse_qq_birthday
+from .card import CardBackground, build_checkin_card_data
+from .content import CheckinContent, resolve_checkin_content
+from .greeting import DEFAULT_CHECKIN_GREETING_PROMPT
+from .models import ACHIEVEMENTS, CheckinProfile, CheckinRecord
+from .quality import CHECKIN_JPEG_QUALITY, get_checkin_render_tier
+from .themes import get_checkin_theme
+
+try:
+    from ..pixiv.downloader import cleanup
+except ImportError:  # Direct imports used by the test suite.
+    from pixiv.downloader import cleanup
+
+logger = logging.getLogger(__name__)
+
+
+LOG_PREFIX = "[GetPx]"
+DEFAULT_AUTO_DOWNGRADE_ORIGINAL_LIMIT_MB = 3.0
+
+
+@dataclass(frozen=True)
+class QQBirthdayLookup:
+    value: tuple[int, int] | None
+    definitive: bool
+
+
+class CheckinApplicationMixin:
+    """Run the daily check-in flow and persist its content snapshot."""
+
+    @staticmethod
+    def _event_username(event: EventAdapter, default: str) -> str:
+        try:
+            value = event.get_sender_name()
+        except Exception:
+            value = None
+        if value:
+            return str(value)
+
+        message_obj = getattr(event, "message_obj", None)
+        sender = getattr(message_obj, "sender", None)
+        for attr in ("nickname", "name", "user_name"):
+            value = getattr(sender, attr, None)
+            if value:
+                return str(value)
+        return default
+
+    @staticmethod
+    def _event_group_context(event: EventAdapter) -> tuple[str, str, str]:
+        try:
+            group_id = str(event.get_group_id() or "").strip()
+        except Exception:
+            group_id = ""
+        if not group_id:
+            return "", "", ""
+        message_obj = getattr(event, "message_obj", None)
+        group_name = ""
+        for source in (message_obj, getattr(message_obj, "raw_message", None)):
+            if isinstance(source, dict):
+                value = source.get("group_name") or source.get("groupName")
+            else:
+                value = getattr(source, "group_name", None)
+            if value:
+                group_name = str(value).strip()
+                break
+        try:
+            platform = str(event.get_platform_name() or "").strip()
+        except Exception:
+            platform = ""
+        return group_id, group_name or group_id, platform
+
+    def _checkin_background_claims_enabled(self) -> bool:
+        image_index = getattr(self, "image_index", None)
+        if image_index is None:
+            return False
+        try:
+            return int(getattr(image_index, "retention_days", 1)) > 0
+        except (TypeError, ValueError):
+            # 未知的第三方索引实现按启用处理，避免误释放真实占用。
+            return True
+
+    async def _handle_checkin(
+        self,
+        event: EventAdapter,
+        *,
+        silent_when_disabled: bool = False,
+        _flow_locked: bool = False,
+    ):
+        """Create or resend today's persisted check-in card."""
+        if not self._cfg_bool("checkin_enabled", True):
+            if not silent_when_disabled:
+                yield event.plain_result("签到功能已关闭")
+            return
+        if self.checkin_store is None:
+            yield event.plain_result("签到数据尚未初始化，请稍后再试")
+            return
+
+        user_id = str(event.get_sender_id() or "")
+        if not user_id:
+            yield event.plain_result("无法识别用户 ID，暂时不能签到")
+            return
+        username = self._event_username(event, user_id)
+        bot_name = self._cfg_str("checkin_bot_name", "neko") or "neko"
+        group_id, group_name, platform = self._event_group_context(event)
+
+        if not _flow_locked:
+            lock_key = user_id
+            lock = self._checkin_flow_lock(lock_key)
+            async with lock:
+                outputs = [
+                    item
+                    async for item in self._handle_checkin(
+                        event,
+                        silent_when_disabled=silent_when_disabled,
+                        _flow_locked=True,
+                    )
+                ]
+            for output in outputs:
+                yield output
+            return
+
+        try:
+            theme = get_checkin_theme("default")
+            get_preference = getattr(self.checkin_store, "get_user_preference", None)
+            if callable(get_preference):
+                preference = await get_preference(user_id)
+                theme = get_checkin_theme(getattr(preference, "current_theme_id", "default"))
+            result = await self.checkin_store.checkin(
+                user_id=user_id,
+                username=username,
+                bot_name=bot_name,
+                theme_id=theme.theme_id,
+                template_version=theme.template_version,
+                group_id=group_id,
+                group_name=group_name,
+                platform=platform,
+            )
+        except Exception as e:
+            logger.error(f"{LOG_PREFIX} 签到写入失败: stage=checkin error_type={type(e).__name__}")
+            yield event.plain_result("签到失败，请稍后再试")
+            return
+
+        record = result.record
+        if record is None:
+            yield event.plain_result(self._format_checkin_plain_text(result))
+            return
+
+        try:
+            record = await self._prepare_checkin_record_content(
+                event,
+                record,
+                allow_ai=not result.duplicate,
+            )
+            result = replace(result, record=record)
+        except Exception as e:
+            logger.warning(
+                f"{LOG_PREFIX} 签到内容持久化失败，回退纯文字: "
+                f"stage=local_content error_type={type(e).__name__}"
+            )
+            yield event.plain_result(self._format_checkin_plain_text(result))
+            return
+
+        cache = getattr(self, "checkin_cache", None)
+        if cache is None:
+            logger.warning(f"{LOG_PREFIX} 签到卡回退纯文字: reason=cache_unavailable")
+            yield event.plain_result(self._format_checkin_plain_text(result))
+            return
+
+        background: CardBackground | None = None
+        card_path: Path | None = None
+        claim_held = False
+        background_persisted = False
+        profile_snapshot = self._checkin_profile_from_record(record)
+        user_title = await self._get_checkin_user_title(record.user_id)
+        preferred_tier = (
+            self._record_checkin_render_tier(record)
+            if result.duplicate
+            else self._configured_checkin_render_tier()
+        )
+        stage = "background_selection"
+        cache_hit = False
+        try:
+            if result.duplicate:
+                background = self._checkin_background_from_record(record)
+            else:
+                background = await self._prepare_checkin_background(
+                    event,
+                    record,
+                    render_tier=preferred_tier,
+                )
+                claim_held = bool(
+                    background is not None
+                    and background.mode == "pixiv_daily"
+                    and background.illust_id
+                    and self._checkin_background_claims_enabled()
+                )
+
+            stage = "cache_lookup"
+            cached_path, actual_tier = await self._get_cached_checkin_card(
+                event,
+                cache=cache,
+                profile=profile_snapshot,
+                record=record,
+                background=background,
+                bot_name=bot_name,
+                user_title=user_title,
+                preferred_tier=preferred_tier,
+            )
+            cache_hit = cached_path is not None
+            if cached_path is None and result.duplicate:
+                stage = "background_restore"
+                background = await self._restore_checkin_background(event, record)
+                restored_quality = str(getattr(background, "quality", "") or "")
+                saved_quality = str(getattr(record, "background_quality", "") or "")
+                if (
+                    background.mode == "pixiv_daily"
+                    and restored_quality
+                    and restored_quality != saved_quality
+                ):
+                    try:
+                        await self.checkin_store.update_record_background(
+                            user_id=user_id,
+                            date_key=record.date_key,
+                            mode=background.mode,
+                            source=background.source,
+                            illust_id=background.illust_id,
+                            title=background.title,
+                            author=background.author,
+                            quality=restored_quality,
+                        )
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        logger.warning(
+                            f"{LOG_PREFIX} 签到背景实际质量同步失败: "
+                            f"error_type={type(exc).__name__}"
+                        )
+                    else:
+                        record = replace(
+                            record,
+                            background_quality=restored_quality,
+                        )
+                        logger.debug(
+                            f"{LOG_PREFIX} 签到背景实际质量已同步: quality={restored_quality}"
+                        )
+            if cached_path is None:
+                stage = "card_render"
+                cached_path, actual_tier = await self._render_checkin_card_with_fallback(
+                    event,
+                    profile=profile_snapshot,
+                    record=record,
+                    background=background,
+                    bot_name=bot_name,
+                    user_title=user_title,
+                    preferred_tier=preferred_tier,
+                    cache=cache,
+                )
+
+            if not result.duplicate and background is not None:
+                stage = "background_persist"
+                await self.checkin_store.update_record_background(
+                    user_id=user_id,
+                    date_key=record.date_key,
+                    mode=background.mode,
+                    source=background.source,
+                    illust_id=background.illust_id,
+                    title=background.title,
+                    author=background.author,
+                    quality=background.quality,
+                )
+                background_persisted = True
+                record = replace(
+                    record,
+                    background_mode=background.mode,
+                    background_source=background.source,
+                    background_illust_id=background.illust_id,
+                    background_title=background.title,
+                    background_author=background.author,
+                    background_quality=background.quality,
+                )
+            if not result.duplicate:
+                stage = "render_tier_persist"
+                record = await self._persist_checkin_render_tier(record, actual_tier)
+            result = replace(result, record=record)
+            card_path = cached_path
+            if card_path:
+                content = [Image.fromFileSystem(str(card_path))]
+                if background and background.pixiv_caption:
+                    content.append(Plain(background.pixiv_caption))
+                stage = "card_send"
+                await event.send(event.chain_result(content))
+                # 图片发送成功后不再释放 pending；即使升级正式记录失败，也要继续去重。
+                claim_held = False
+                try:
+                    stage = "usage_record"
+                    await self._record_checkin_background(event, background)
+                except asyncio.CancelledError:
+                    logger.warning(f"{LOG_PREFIX} 签到背景使用记录被取消，保留已发送图片占用")
+                    raise
+                except Exception as exc:
+                    logger.warning(
+                        f"{LOG_PREFIX} 签到背景使用记录失败，保留已发送图片占用: "
+                        f"error_type={type(exc).__name__}"
+                    )
+                logger.info(
+                    f"{LOG_PREFIX} 签到卡发送完成: tier={actual_tier} "
+                    f"cache_hit={'yes' if cache_hit else 'no'} "
+                    f"background_mode={getattr(background, 'mode', 'none')}"
+                )
+                return
+        except Exception as e:
+            card_path = None
+            logger.warning(
+                f"{LOG_PREFIX} 签到卡回退纯文字: stage={stage} "
+                f"preferred_tier={preferred_tier} "
+                f"error_type={type(e).__name__}"
+            )
+        finally:
+            try:
+                if claim_held and self._checkin_background_claims_enabled():
+                    can_release_claim = True
+                    if background_persisted:
+                        try:
+                            await self.checkin_store.update_record_background(
+                                user_id=user_id,
+                                date_key=record.date_key,
+                                mode="fallback",
+                                source="fallback",
+                                illust_id="",
+                                title="",
+                                author="",
+                                quality="",
+                            )
+                            if cached_path is not None:
+                                try:
+                                    Path(cached_path).unlink(missing_ok=True)
+                                except OSError as exc:
+                                    logger.warning(
+                                        f"{LOG_PREFIX} 未发送签到卡缓存清理失败: "
+                                        f"error_type={type(exc).__name__}"
+                                    )
+                            logger.debug(f"{LOG_PREFIX} 未发送签到背景持久化已撤销")
+                        except asyncio.CancelledError:
+                            logger.warning(f"{LOG_PREFIX} 未发送签到背景撤销被取消，保留去重占用")
+                            raise
+                        except Exception as exc:
+                            can_release_claim = False
+                            logger.warning(
+                                f"{LOG_PREFIX} 未发送签到背景撤销失败，"
+                                f"保留去重占用: "
+                                f"error_type={type(exc).__name__}"
+                            )
+                    if can_release_claim:
+                        await self._release_checkin_background_claim(event, background)
+                        claim_held = False
+            finally:
+                if background and background.image_path and background.mode == "pixiv_daily":
+                    cleanup(background.image_path)
+                    if not Path(background.image_path).exists():
+                        logger.debug(f"{LOG_PREFIX} 签到背景临时文件清理完成: mode=pixiv_daily")
+        yield event.plain_result(self._format_checkin_plain_text(result))
+
+    async def _prepare_checkin_record_content(
+        self,
+        event: EventAdapter,
+        record: CheckinRecord,
+        *,
+        allow_ai: bool,
+    ) -> CheckinRecord:
+        if record.greeting:
+            return record
+        content, _title = await self._compose_checkin_content(
+            event,
+            record,
+            self._checkin_profile_from_record(record),
+            mutate_features=True,
+        )
+        local_record = await self.checkin_store.update_record_content(
+            user_id=record.user_id,
+            date_key=record.date_key,
+            event_key=content.event_key,
+            event_label=content.event_label,
+            greeting=content.greeting,
+            greeting_source="local",
+            secondary_note=content.secondary_note,
+            template_version=record.template_version or "default:1",
+        )
+        if not allow_ai:
+            return local_record
+        greeting, source, greeting_attribution = await self._generate_checkin_greeting(
+            event, content
+        )
+        if source not in ("ai", "hitokoto"):
+            return local_record
+        try:
+            return await self.checkin_store.update_record_content(
+                user_id=record.user_id,
+                date_key=record.date_key,
+                event_key=content.event_key,
+                event_label=content.event_label,
+                greeting=greeting,
+                greeting_source=source,
+                greeting_attribution=greeting_attribution,
+                secondary_note=content.secondary_note,
+                template_version=record.template_version or "default:1",
+            )
+        except Exception as exc:
+            logger.warning(
+                f"{LOG_PREFIX} 远程签到问候升级失败，继续使用本地问候: "
+                f"source={source} stage=persist_upgrade "
+                f"error_type={type(exc).__name__}"
+            )
+            return local_record
+
+    async def _compose_checkin_content(
+        self,
+        event: EventAdapter,
+        record: CheckinRecord,
+        profile: CheckinProfile,
+        *,
+        mutate_features: bool,
+    ) -> tuple[CheckinContent, str]:
+        store = self.checkin_store
+        preference = None
+        unlocked_ids: tuple[str, ...] = ()
+        if (
+            store is not None
+            and mutate_features
+            and all(hasattr(store, name) for name in ("get_user_preference", "unlock_achievements"))
+        ):
+            preference = await self._ensure_checkin_birthday(event, record.user_id)
+            unlocked_ids = await store.unlock_achievements(profile)
+            preference = await store.get_user_preference(record.user_id)
+        elif store is not None and hasattr(store, "find_user_preference"):
+            preference = await store.find_user_preference(record.user_id)
+
+        title = (
+            str(ACHIEVEMENTS[preference.selected_title_id]["title"])
+            if preference is not None and preference.selected_title_id in ACHIEVEMENTS
+            else ""
+        )
+        birthday_label = ""
+        if (
+            preference is not None
+            and preference.birthday_label
+            and birthday_matches(
+                record.date_key, preference.birthday_month, preference.birthday_day
+            )
+        ):
+            birthday_label = "生日"
+
+        global_events = (
+            await store.events_for_date(record.date_key)
+            if store is not None and hasattr(store, "events_for_date")
+            else ()
+        )
+        content = resolve_checkin_content(
+            record,
+            profile,
+            birthday_label=birthday_label,
+            custom_event_label=global_events[0].name if global_events else "",
+            online_holiday=(
+                calendar.lookup(record.date_key)
+                if (calendar := getattr(self, "holiday_calendar", None)) is not None
+                else None
+            ),
+            secondary_event_labels=tuple(item.name for item in global_events[1:]),
+            current_title=title,
+            unlocked_achievements=tuple(str(ACHIEVEMENTS[item]["title"]) for item in unlocked_ids),
+        )
+        return content, title
+
+    async def _generate_checkin_greeting(
+        self, event: EventAdapter, content: CheckinContent
+    ) -> tuple[str, str, str]:
+        greeting_mode = self._checkin_greeting_mode()
+        if greeting_mode == "local":
+            return content.greeting, "local", ""
+        if greeting_mode == "hitokoto":
+            return await self.checkin_greeting.generate_hitokoto(
+                content.context,
+                timeout=self._cfg_float("checkin_hitokoto_timeout", 5.0, 1.0, 15.0),
+                categories=self.config.get("checkin_hitokoto_categories", ["全部"]),
+            )
+        greeting, source = await self.checkin_greeting.generate(
+            event,
+            content.context,
+            enabled=True,
+            provider_id=self._cfg_str("checkin_ai_greeting_provider_id", ""),
+            prompt=self._cfg_str("checkin_ai_greeting_prompt", DEFAULT_CHECKIN_GREETING_PROMPT),
+            timeout=self._cfg_float("checkin_ai_greeting_timeout", 8.0, 1.0, 30.0),
+        )
+        return greeting, source, ""
+
+    async def _refresh_checkin_hitokoto(
+        self, event: EventAdapter, record: CheckinRecord
+    ) -> CheckinRecord:
+        """Refresh only the Hitokoto greeting, keeping the current greeting on failure."""
+        if self._checkin_greeting_mode() != "hitokoto":
+            return record
+        store = getattr(self, "checkin_store", None)
+        refresh = getattr(store, "refresh_record_greeting", None)
+        if not callable(refresh):
+            return record
+        try:
+            content, _title = await self._compose_checkin_content(
+                event,
+                record,
+                self._checkin_profile_from_record(record),
+                mutate_features=False,
+            )
+            (
+                greeting,
+                source,
+                attribution,
+            ) = await self.checkin_greeting.generate_hitokoto(
+                content.context,
+                timeout=self._cfg_float("checkin_hitokoto_timeout", 5.0, 1.0, 15.0),
+                categories=self.config.get("checkin_hitokoto_categories", ["全部"]),
+            )
+            if source != "hitokoto" or not greeting:
+                return record
+            return await refresh(
+                user_id=record.user_id,
+                date_key=record.date_key,
+                greeting=greeting,
+                greeting_source="hitokoto",
+                greeting_attribution=attribution,
+            )
+        except Exception as exc:
+            logger.warning(
+                f"{LOG_PREFIX} 刷新签到一言失败，保留原问候: error_type={type(exc).__name__}"
+            )
+            return record
+
+    def _checkin_greeting_mode(self) -> str:
+        mode = self._cfg_str("checkin_greeting_mode", "hitokoto").lower()
+        return mode if mode in ("local", "hitokoto", "ai") else "hitokoto"
+
+    async def _ensure_checkin_birthday(self, event: EventAdapter, user_id: str):
+        preference = await self.checkin_store.get_user_preference(user_id)
+        if preference.birthday_source == "manual" or preference.qq_birthday_checked:
+            return preference
+        lookup = await self._fetch_qq_birthday(event, user_id)
+        if lookup.definitive:
+            await self.checkin_store.mark_qq_birthday_checked(user_id)
+        if lookup.value is not None:
+            return await self.checkin_store.set_qq_birthday_if_not_manual(
+                user_id=user_id, month=lookup.value[0], day=lookup.value[1]
+            )
+        return await self.checkin_store.get_user_preference(user_id)
+
+    async def _get_checkin_user_title(self, user_id: str) -> str:
+        store = self.checkin_store
+        if store is None or not hasattr(store, "get_user_preference"):
+            return ""
+        preference = await store.get_user_preference(user_id)
+        if preference.selected_title_id not in ACHIEVEMENTS:
+            return ""
+        return str(ACHIEVEMENTS[preference.selected_title_id]["title"])
+
+    @staticmethod
+    async def _fetch_qq_birthday(event: EventAdapter, user_id: str) -> QQBirthdayLookup:
+        try:
+            if event.get_platform_name() != "onebot":
+                logger.info(f"{LOG_PREFIX} QQ 生日读取跳过: platform={event.get_platform_name()}")
+                return QQBirthdayLookup(None, False)
+            bot = getattr(event, "bot", None)
+            if bot is None or not hasattr(bot, "call_action"):
+                logger.warning(f"{LOG_PREFIX} QQ 生日读取失败: 当前事件不支持 call_action")
+                return QQBirthdayLookup(None, False)
+            payload = await asyncio.wait_for(
+                bot.call_action(
+                    action="get_stranger_info",
+                    user_id=int(user_id),
+                    no_cache=True,
+                ),
+                timeout=3.0,
+            )
+            parsed = parse_qq_birthday(payload)
+            if parsed is None:
+                logger.info(f"{LOG_PREFIX} QQ 生日未读取: 用户未公开生日")
+            else:
+                logger.info(f"{LOG_PREFIX} QQ 生日读取成功")
+            return QQBirthdayLookup(parsed, True)
+        except asyncio.TimeoutError:
+            logger.debug(f"{LOG_PREFIX} QQ 生日读取跳过: reason=timeout")
+            return QQBirthdayLookup(None, False)
+        except (TypeError, ValueError) as exc:
+            logger.warning(f"{LOG_PREFIX} QQ 生日资料解析失败: error_type={type(exc).__name__}")
+            return QQBirthdayLookup(None, False)
+        except Exception as exc:
+            logger.warning(f"{LOG_PREFIX} QQ 生日读取异常: error_type={type(exc).__name__}")
+            return QQBirthdayLookup(None, False)
+
+    @staticmethod
+    def _checkin_profile_from_record(record: CheckinRecord) -> CheckinProfile:
+        return CheckinProfile(
+            user_id=record.user_id,
+            coins=record.total_coins_after,
+            affection=record.total_affection_after,
+            total_days=record.total_days_after,
+            streak_days=record.streak_days_after,
+            last_checkin_date=record.date_key,
+            boost_start_date="",
+            boost_until_date="",
+            repeat_penalty_date="",
+            repeat_penalty_total=0.0,
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+        )
+
+    @staticmethod
+    def _checkin_background_from_record(record: CheckinRecord) -> CardBackground:
+        return CardBackground(
+            mode=record.background_mode or "fallback",
+            source=record.background_source,
+            illust_id=record.background_illust_id,
+            title=record.background_title,
+            author=record.background_author,
+            quality=str(getattr(record, "background_quality", "") or ""),
+        )
+
+    def _checkin_card_cache_key(
+        self,
+        event: EventAdapter,
+        *,
+        profile: CheckinProfile,
+        record: CheckinRecord,
+        background: CardBackground | None,
+        bot_name: str,
+        user_title: str = "",
+        render_tier: str | None = None,
+    ) -> str:
+        background = background or self._checkin_background_from_record(record)
+        identity_background = CardBackground(
+            mode=background.mode,
+            source=background.source,
+            illust_id=background.illust_id,
+            title=background.title,
+            author=background.author,
+            quality=background.quality,
+        )
+        avatar_url = (
+            self._checkin_avatar_url(event)
+            if self._cfg_bool("checkin_avatar_enabled", True)
+            else ""
+        )
+        view_model = build_checkin_card_data(
+            profile=profile,
+            record=record,
+            bot_name=bot_name,
+            avatar_url=avatar_url,
+            background=identity_background,
+            user_title=user_title,
+            background_refresh_cost=self._cfg_int("checkin_background_refresh_cost", 100, 0, 500),
+        )
+        view_model["background_mode"] = identity_background.mode
+        view_model["background_source"] = identity_background.source
+        render_spec = get_checkin_render_tier(
+            render_tier or self._record_checkin_render_tier(record)
+        )
+        view_model["render_tier"] = render_spec.name
+        view_model["render_quality"] = CHECKIN_JPEG_QUALITY
+        view_model["background_quality"] = str(background.quality or render_spec.background_quality)
+        return self.checkin_cache.cache_key(
+            date_key=record.date_key,
+            user_id=record.user_id,
+            template_version=get_checkin_theme(record.theme_id).template_version,
+            view_model=view_model,
+        )
+
+    async def _persist_checkin_render_tier(
+        self,
+        record: CheckinRecord,
+        render_tier: str,
+    ) -> CheckinRecord:
+        normalized = get_checkin_render_tier(render_tier).name
+        if self._record_checkin_render_tier(record) == normalized:
+            return record
+        updater = getattr(self.checkin_store, "update_record_render_tier", None)
+        if callable(updater):
+            return await updater(
+                user_id=record.user_id,
+                date_key=record.date_key,
+                render_tier=normalized,
+            )
+        return replace(record, render_tier=normalized)

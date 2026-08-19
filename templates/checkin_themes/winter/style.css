@@ -1,0 +1,95 @@
+:root {
+  --paper: #f2f5f8;
+  --paper-deep: #dbe5ee;
+  --ink: #1e2c3c;
+  --muted: #5e7186;
+  --faint: #8a9cae;
+  --rule: rgba(58, 80, 102, 0.24);
+  --jade: #3f5a76;
+  --jade-light: #c2d6e6;
+  --vermillion: #b4485e;
+  --gold: #8ea6bc;
+  --font-cn: "LXGW WenKai Lite", "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", simsun, serif;
+  --body-background: #c2d0dc;
+  --stage-background: radial-gradient(circle at 86% 12%, rgba(255, 255, 255, 0.62), transparent 24%),
+    linear-gradient(135deg, rgba(54, 78, 100, 0.18), transparent 48%),
+    #c6d4e0;
+  --card-border: rgba(58, 80, 102, 0.22);
+  --card-background: linear-gradient(90deg, rgba(255, 255, 255, 0.46), transparent 58%),
+    repeating-linear-gradient(0deg, transparent 0 5px, rgba(58, 80, 102, 0.02) 5px 6px),
+    var(--paper);
+  --card-shadow: 0 14px 34px rgba(38, 56, 74, 0.2), inset 0 0 68px rgba(74, 102, 130, 0.08);
+  --card-inner-border: rgba(58, 80, 102, 0.16);
+  --badge-border: rgba(180, 72, 90, 0.5);
+  --avatar-background: rgba(196, 212, 226, 0.5);
+  --rewards-rule: rgba(58, 80, 102, 0.18);
+  --reward-divider: rgba(58, 80, 102, 0.2);
+  --summary-border: rgba(58, 80, 102, 0.16);
+  --summary-background: rgba(196, 212, 226, 0.2);
+  --progress-track-background: rgba(76, 104, 130, 0.13);
+  --artwork-frame-border: #e8ecf0;
+  --artwork-frame-outline: rgba(58, 80, 102, 0.24);
+  --artwork-frame-background: radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.8), transparent 30%),
+    linear-gradient(160deg, #e4edf4, #d4e0ea 55%, #c4d4e2);
+  --artwork-frame-shadow: inset 0 0 0 1px rgba(140, 160, 180, 0.45), 0 8px 18px rgba(38, 56, 74, 0.12);
+  --artwork-placeholder-background: #d4e0ea;
+  --artwork-wash-background: linear-gradient(180deg, rgba(26, 42, 58, 0.05), transparent 35%, rgba(240, 244, 247, 0.78) 100%),
+    linear-gradient(90deg, rgba(240, 244, 247, 0.28), transparent 32%);
+}
+
+.plum-ink {
+  position: absolute;
+  z-index: -1;
+  top: -16px;
+  right: -44px;
+  width: 548px;
+  height: 524px;
+  overflow: visible;
+  transform-origin: center;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+
+/* Plum wood is a pale, layered network of thin branches rather than a heavy
+   central trunk. */
+.plum-trunk {
+  fill: url(#trunk-fade);
+  stroke: none;
+  opacity: 0.19;
+}
+
+.plum-branch {
+  fill: url(#branch-fade);
+  stroke: none;
+  opacity: 0.18;
+}
+
+.plum-twig {
+  fill: none;
+  stroke: url(#twig-fade);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.twig-near { stroke-width: 1.05; opacity: 0.24; }
+.twig-mid { stroke-width: 0.78; opacity: 0.18; }
+.twig-far { stroke-width: 0.58; opacity: 0.13; }
+
+.plum-blossom { stroke: none; fill: #b4485e; }
+.blossom-near { opacity: 0.32; }
+.blossom-mid { opacity: 0.24; }
+.blossom-far { opacity: 0.16; }
+
+.blossom-heart { stroke: none; fill: #8d6a3a; opacity: 0.4; }
+.plum-bud { stroke: none; fill: #a8506a; opacity: 0.3; }
+
+/* Snow sits on tinted paper, so flecks read as pale blue rather than white. */
+.snow-fleck { stroke: none; fill: #9fb8cc; opacity: 0.5; }
+
+.snow-drift {
+  fill: none;
+  stroke: #a8bdd0;
+  stroke-linecap: round;
+  stroke-width: 1.2;
+  opacity: 0.3;
+}

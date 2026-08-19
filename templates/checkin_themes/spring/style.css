@@ -1,0 +1,120 @@
+:root {
+  --paper: #f0f1e4;
+  --paper-deep: #dce7d7;
+  --ink: #243a31;
+  --muted: #65786a;
+  --faint: #8ca090;
+  --rule: rgba(54, 88, 65, 0.24);
+  --jade: #52755e;
+  --jade-light: #b9d0b4;
+  --vermillion: #c8756c;
+  --gold: #af884d;
+  --font-cn: "LXGW WenKai Lite", "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", simsun, serif;
+  --body-background: #c6d5c5;
+  --stage-background: radial-gradient(circle at 86% 12%, rgba(255, 255, 255, 0.62), transparent 24%),
+    linear-gradient(135deg, rgba(52, 86, 62, 0.18), transparent 48%),
+    #c8d6c6;
+  --card-border: rgba(54, 88, 65, 0.22);
+  --card-background: linear-gradient(90deg, rgba(255, 255, 255, 0.46), transparent 58%),
+    repeating-linear-gradient(0deg, transparent 0 5px, rgba(54, 88, 65, 0.02) 5px 6px),
+    var(--paper);
+  --card-shadow: 0 14px 34px rgba(39, 67, 47, 0.2), inset 0 0 68px rgba(78, 112, 82, 0.08);
+  --card-inner-border: rgba(54, 88, 65, 0.16);
+  --badge-border: rgba(200, 117, 108, 0.5);
+  --avatar-background: rgba(185, 208, 180, 0.5);
+  --rewards-rule: rgba(54, 88, 65, 0.18);
+  --reward-divider: rgba(54, 88, 65, 0.2);
+  --summary-border: rgba(54, 88, 65, 0.16);
+  --summary-background: rgba(185, 208, 180, 0.2);
+  --progress-track-background: rgba(82, 117, 94, 0.13);
+  --artwork-frame-border: #e9e2cf;
+  --artwork-frame-outline: rgba(54, 88, 65, 0.24);
+  --artwork-frame-background: radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.8), transparent 30%),
+    linear-gradient(160deg, #e4eddf, #d5e2d4 55%, #c8d9cb);
+  --artwork-frame-shadow: inset 0 0 0 1px rgba(175, 136, 77, 0.45), 0 8px 18px rgba(39, 67, 47, 0.12);
+  --artwork-placeholder-background: #d5e2d4;
+  --artwork-wash-background: linear-gradient(180deg, rgba(31, 56, 43, 0.05), transparent 35%, rgba(240, 241, 228, 0.78) 100%),
+    linear-gradient(90deg, rgba(240, 241, 228, 0.28), transparent 32%);
+}
+
+.willow-ink {
+  position: absolute;
+  z-index: -1;
+  top: -36px;
+  right: -34px;
+  width: 540px;
+  height: 520px;
+  overflow: visible;
+  opacity: 1;
+  transform-origin: center;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+
+.ink-branch {
+  fill: none;
+  stroke: #2c4437;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Branch and tendril strokes fade through gradients so the ink enters from the
+   top-right corner and dissolves before it reaches the body copy. */
+/* The trunk is an outlined ribbon, not a stroke, so it can taper like a brush. */
+.ink-branch .branch-deep {
+  fill: url(#branch-fade);
+  stroke: none;
+  opacity: 0.28;
+}
+
+.ink-branch .branch-soft {
+  stroke: url(#branch-fade);
+  stroke-width: 4.5;
+  opacity: 0.2;
+}
+
+.ink-branch .branch-hair {
+  stroke: url(#branch-fade);
+  stroke-width: 1.6;
+  opacity: 0.18;
+}
+
+.ink-branch .branch-knot {
+  stroke: #24372e;
+  stroke-width: 2.6;
+  opacity: 0.24;
+}
+
+.willow-tendrils {
+  fill: none;
+  stroke: url(#tendril-fade);
+  stroke-linecap: round;
+}
+
+.tendril-near { stroke-width: 1.5; opacity: 0.34; }
+.tendril-mid { stroke-width: 1.2; opacity: 0.25; }
+.tendril-far { stroke-width: 1; opacity: 0.17; }
+
+.willow-leaves { stroke: none; }
+
+.leaf-near { fill: #4d7358; opacity: 0.3; }
+.leaf-mid { fill: #688c6c; opacity: 0.23; }
+.leaf-far { fill: #8aa88c; opacity: 0.17; }
+.leaf-fall { fill: #7d9d7c; opacity: 0.2; }
+
+.ink-pavilion {
+  fill: none;
+  stroke: #64816c;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+  opacity: 0.16;
+}
+
+.ink-mist {
+  fill: none;
+  stroke: #9aafa0;
+  stroke-linecap: round;
+  stroke-width: 1.2;
+  opacity: 0.18;
+}

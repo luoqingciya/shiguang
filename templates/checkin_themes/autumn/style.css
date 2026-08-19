@@ -1,0 +1,91 @@
+:root {
+  --paper: #f6efe1;
+  --paper-deep: #ebdcc0;
+  --ink: #3b2a1a;
+  --muted: #7d6950;
+  --faint: #a08d70;
+  --rule: rgba(108, 74, 44, 0.24);
+  --jade: #9a5f34;
+  --jade-light: #dcc79c;
+  --vermillion: #b8452f;
+  --gold: #bf8c34;
+  --font-cn: "LXGW WenKai Lite", "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", simsun, serif;
+  --body-background: #d9c7a6;
+  --stage-background: radial-gradient(circle at 86% 12%, rgba(255, 255, 255, 0.62), transparent 24%),
+    linear-gradient(135deg, rgba(104, 72, 42, 0.18), transparent 48%),
+    #dbc9a8;
+  --card-border: rgba(108, 74, 44, 0.22);
+  --card-background: linear-gradient(90deg, rgba(255, 255, 255, 0.46), transparent 58%),
+    repeating-linear-gradient(0deg, transparent 0 5px, rgba(108, 74, 44, 0.02) 5px 6px),
+    var(--paper);
+  --card-shadow: 0 14px 34px rgba(74, 50, 28, 0.2), inset 0 0 68px rgba(146, 108, 60, 0.08);
+  --card-inner-border: rgba(108, 74, 44, 0.16);
+  --badge-border: rgba(184, 69, 47, 0.5);
+  --avatar-background: rgba(220, 198, 158, 0.5);
+  --rewards-rule: rgba(108, 74, 44, 0.18);
+  --reward-divider: rgba(108, 74, 44, 0.2);
+  --summary-border: rgba(108, 74, 44, 0.16);
+  --summary-background: rgba(220, 198, 158, 0.2);
+  --progress-track-background: rgba(140, 102, 56, 0.13);
+  --artwork-frame-border: #f0e4c8;
+  --artwork-frame-outline: rgba(108, 74, 44, 0.24);
+  --artwork-frame-background: radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.8), transparent 30%),
+    linear-gradient(160deg, #f2e6ce, #e6d5b4 55%, #dbc8a4);
+  --artwork-frame-shadow: inset 0 0 0 1px rgba(176, 124, 54, 0.45), 0 8px 18px rgba(74, 50, 28, 0.12);
+  --artwork-placeholder-background: #e6d5b4;
+  --artwork-wash-background: linear-gradient(180deg, rgba(62, 42, 24, 0.05), transparent 35%, rgba(245, 238, 224, 0.78) 100%),
+    linear-gradient(90deg, rgba(245, 238, 224, 0.28), transparent 32%);
+}
+
+.maple-ink {
+  position: absolute;
+  z-index: -1;
+  top: -38px;
+  right: -40px;
+  width: 544px;
+  height: 522px;
+  overflow: visible;
+  transform-origin: center;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+
+/* The bough is an outlined ribbon, not a stroke, so it can taper like a brush. */
+.maple-branch {
+  fill: url(#branch-fade);
+  stroke: none;
+  opacity: 0.3;
+}
+
+.maple-twig {
+  fill: none;
+  stroke: url(#twig-fade);
+  stroke-linecap: round;
+}
+
+.twig-near { stroke-width: 1.8; opacity: 0.32; }
+.twig-mid { stroke-width: 1.3; opacity: 0.24; }
+.twig-far { stroke-width: 1; opacity: 0.16; }
+
+.maple-leaves { stroke: none; }
+
+.leaf-near { fill: #a8402a; opacity: 0.34; }
+.leaf-mid { fill: #bd6a32; opacity: 0.28; }
+.leaf-far { fill: #c99a49; opacity: 0.2; }
+.leaf-fall { fill: #b3552c; opacity: 0.25; }
+
+.reed {
+  fill: none;
+  stroke: #9a7b4c;
+  stroke-linecap: round;
+  stroke-width: 1.3;
+  opacity: 0.3;
+}
+
+.autumn-mist {
+  fill: none;
+  stroke: #a08d70;
+  stroke-linecap: round;
+  stroke-width: 1.2;
+  opacity: 0.2;
+}

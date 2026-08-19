@@ -1,0 +1,12 @@
+{
+  "name": "shiguang",
+  "version": "1.0.0",
+  "title": "拾光集",
+  "description": "安全插画发图（Lolicon/Pixiv）+ 签到系统，由 AstrBot「画境拾珍」移植",
+  "author": "Qingci-Bot",
+  "type": "sdk",
+  "main": "shiguang",
+  "icon": "🌅",
+  "license": "GPL-3.0-or-later",
+  "requirements": ["qingci-plugin-sdk>=1.9.0"]
+}

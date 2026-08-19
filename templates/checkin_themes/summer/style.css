@@ -1,0 +1,109 @@
+:root {
+  --paper: #edf3f1;
+  --paper-deep: #d3e5e3;
+  --ink: #1c383c;
+  --muted: #5a7578;
+  --faint: #85a1a2;
+  --rule: rgba(40, 86, 92, 0.24);
+  --jade: #35787a;
+  --jade-light: #acd0ce;
+  --vermillion: #ce7c8e;
+  --gold: #be9f5c;
+  --font-cn: "LXGW WenKai Lite", "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", simsun, serif;
+  --body-background: #bcd2d1;
+  --stage-background: radial-gradient(circle at 86% 12%, rgba(255, 255, 255, 0.62), transparent 24%),
+    linear-gradient(135deg, rgba(36, 82, 88, 0.18), transparent 48%),
+    #bed4d2;
+  --card-border: rgba(40, 86, 92, 0.22);
+  --card-background: linear-gradient(90deg, rgba(255, 255, 255, 0.46), transparent 58%),
+    repeating-linear-gradient(0deg, transparent 0 5px, rgba(40, 86, 92, 0.02) 5px 6px),
+    var(--paper);
+  --card-shadow: 0 14px 34px rgba(26, 62, 70, 0.2), inset 0 0 68px rgba(60, 116, 122, 0.08);
+  --card-inner-border: rgba(40, 86, 92, 0.16);
+  --badge-border: rgba(206, 124, 142, 0.5);
+  --avatar-background: rgba(172, 208, 206, 0.5);
+  --rewards-rule: rgba(40, 86, 92, 0.18);
+  --reward-divider: rgba(40, 86, 92, 0.2);
+  --summary-border: rgba(40, 86, 92, 0.16);
+  --summary-background: rgba(172, 208, 206, 0.2);
+  --progress-track-background: rgba(60, 112, 118, 0.13);
+  --artwork-frame-border: #e6e6da;
+  --artwork-frame-outline: rgba(40, 86, 92, 0.24);
+  --artwork-frame-background: radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.8), transparent 30%),
+    linear-gradient(160deg, #dcecea, #cbe0de 55%, #bcd6d4);
+  --artwork-frame-shadow: inset 0 0 0 1px rgba(190, 160, 92, 0.45), 0 8px 18px rgba(26, 62, 70, 0.12);
+  --artwork-placeholder-background: #cbe0de;
+  --artwork-wash-background: linear-gradient(180deg, rgba(20, 52, 58, 0.05), transparent 35%, rgba(236, 243, 242, 0.78) 100%),
+    linear-gradient(90deg, rgba(236, 243, 242, 0.28), transparent 32%);
+}
+
+.lotus-ink {
+  position: absolute;
+  z-index: -1;
+  top: -34px;
+  right: -14px;
+  width: 552px;
+  height: 516px;
+  overflow: visible;
+  transform-origin: center;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+
+/* The pad body stays a faint wash while its rim keeps a readable ink line, so
+   fill and stroke carry separate opacities rather than one shared value. */
+.lotus-pad {
+  fill: #4c8a8c;
+  stroke: #2f6d70;
+  stroke-width: 1.3;
+  stroke-linejoin: round;
+}
+
+/* Depth is set per element: a group opacity would multiply with the vein
+   values and wash the pads out entirely. */
+.pad-near .lotus-pad { fill-opacity: 0.17; stroke-opacity: 0.44; }
+.pad-mid .lotus-pad { fill-opacity: 0.12; stroke-opacity: 0.32; }
+.pad-far .lotus-pad { fill-opacity: 0.08; stroke-opacity: 0.2; }
+
+.lotus-vein {
+  fill: none;
+  stroke: #2f6d70;
+  stroke-linecap: round;
+  stroke-width: 1;
+}
+
+.pad-near .lotus-vein { opacity: 0.3; }
+.pad-mid .lotus-vein { opacity: 0.22; }
+.pad-far .lotus-vein { opacity: 0.15; }
+
+.lotus-stem {
+  fill: none;
+  stroke: url(#stem-fade);
+  stroke-linecap: round;
+  stroke-width: 1.6;
+  opacity: 0.24;
+}
+
+.lotus-petal { stroke: none; fill: #cf8296; }
+.petal-outer { opacity: 0.24; }
+.petal-inner { opacity: 0.32; }
+.lotus-heart { stroke: none; fill: #b9924e; opacity: 0.38; }
+.lotus-bud { stroke: none; fill: #cf8296; opacity: 0.22; }
+
+.water-ripple {
+  fill: none;
+  stroke: #4d8b8e;
+  stroke-linecap: round;
+  stroke-width: 1.2;
+  opacity: 0.18;
+}
+
+.dragonfly {
+  fill: none;
+  stroke: #2f5a62;
+  stroke-linecap: round;
+  stroke-width: 1.1;
+  opacity: 0.3;
+}
+
+.dragonfly-wing { stroke: none; fill: #6f9ba0; opacity: 0.16; }

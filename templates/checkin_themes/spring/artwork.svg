@@ -1,0 +1,223 @@
+        <svg class="willow-ink" viewBox="0 0 500 500" aria-hidden="true">
+          <defs>
+            <path id="willow-leaf" d="M0 0 C4 -4 15 -9 31 -9 C17 -3 7 2 0 0Z" />
+            <linearGradient id="branch-fade" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stop-color="#2c4437" stop-opacity="0" />
+              <stop offset=".26" stop-color="#2c4437" stop-opacity=".5" />
+              <stop offset="1" stop-color="#2c4437" stop-opacity="1" />
+            </linearGradient>
+            <linearGradient id="tendril-fade" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#5c7d66" stop-opacity="1" />
+              <stop offset=".52" stop-color="#5c7d66" stop-opacity=".82" />
+              <stop offset="1" stop-color="#5c7d66" stop-opacity=".08" />
+            </linearGradient>
+          </defs>
+          <g class="ink-branch">
+            <path class="branch-deep" d="M-39.6 130.8 L-30.1 127.1 L-21 124.4 L-12.3 122.6 L-3.8 121.6 L4.3 121.2 L12.2 121.3 L20 121.7 L27.6 122.2 L35.2 122.9 L42.7 123.4 L50.2 123.7 L57.7 123.5 L65.3 122.8 L73 121.4 L80.9 119.1 L88.8 115.9 L94.7 113.2 L100.2 110.3 L105.4 107.4 L110.3 104.4 L114.9 101.5 L119.3 98.7 L123.5 96.1 L127.6 93.7 L131.6 91.6 L135.6 89.8 L139.6 88.4 L143.6 87.4 L147.7 86.9 L152 86.9 L156.5 87.5 L161.5 88.7 L167.3 89.6 L172.8 89.8 L178.1 89.3 L183.2 88.2 L188.1 86.7 L192.8 84.6 L197.3 82.3 L201.8 79.6 L206.2 76.7 L210.6 73.7 L214.9 70.6 L219.3 67.5 L223.8 64.4 L228.4 61.5 L233.2 58.7 L238 56.2 L243.1 54.2 L248 52.7 L252.9 51.7 L257.6 51.1 L262.4 50.6 L267.2 50.3 L272.2 49.9 L277.3 49.4 L282.6 48.7 L288.1 47.5 L293.7 45.8 L299.6 43.5 L305.6 40.4 L311.9 36.4 L318.4 31.4 L324.9 25.6 L330 21.7 L334.9 18.7 L339.6 16.4 L344 14.6 L348.4 13.3 L352.7 12.5 L357 11.9 L361.4 11.4 L365.8 11.1 L370.4 10.8 L375.2 10.4 L380.2 9.7 L385.4 8.7 L390.8 7.3 L396.5 5.3 L402.5 2.5 L408.2 -0.2 L413.6 -2.4 L419.1 -4 L424.5 -5.3 L430.1 -6.4 L435.8 -7.3 L441.8 -8.2 L448.1 -9.1 L454.8 -10.1 L461.9 -11.5 L469.5 -13.2 L477.5 -15.4 L486.1 -18.3 L495.3 -21.8 L505.1 -26.1 L515.6 -31.4 L508.4 -44.6 L498.6 -39.6 L489.5 -35.4 L481.1 -31.9 L473.2 -29.1 L465.8 -26.8 L458.9 -24.9 L452.2 -23.3 L445.9 -21.9 L439.7 -20.7 L433.7 -19.5 L427.7 -18.2 L421.7 -16.7 L415.8 -14.8 L409.8 -12.6 L403.7 -9.9 L397.5 -6.5 L392.5 -4 L387.7 -2 L383.1 -0.6 L378.6 0.5 L374.1 1.2 L369.7 1.8 L365.2 2.2 L360.6 2.6 L356 3 L351.2 3.7 L346.3 4.7 L341.2 6.1 L336 8.1 L330.5 10.8 L324.9 14.2 L319.1 18.4 L312.5 24.2 L306.5 28.6 L300.9 32 L295.6 34.7 L290.6 36.6 L285.7 38 L280.9 38.9 L276.2 39.6 L271.4 40 L266.6 40.4 L261.6 40.8 L256.4 41.3 L251.1 42.2 L245.6 43.4 L239.9 45.3 L234 47.8 L228.6 50.8 L223.6 54 L218.9 57.3 L214.3 60.6 L210 64 L205.8 67.3 L201.7 70.5 L197.7 73.4 L193.7 76.1 L189.6 78.5 L185.6 80.5 L181.4 82.1 L177 83.3 L172.5 83.9 L167.7 83.9 L162.5 83.3 L157.3 82.2 L152.2 81.8 L147.3 81.9 L142.6 82.7 L138.2 83.9 L133.8 85.5 L129.6 87.5 L125.4 89.8 L121.2 92.3 L116.9 95 L112.5 97.9 L108 100.8 L103.2 103.7 L98.2 106.6 L92.9 109.4 L87.2 112.1 L79.5 115.3 L72.1 117.5 L64.8 118.9 L57.5 119.6 L50.2 119.8 L42.8 119.7 L35.4 119.3 L27.9 118.8 L20.2 118.3 L12.3 118.1 L4.2 118.2 L-4.1 118.8 L-12.7 120 L-21.6 122.1 L-30.8 125.1 L-40.4 129.2Z" />
+            <path class="branch-soft" d="M-39.1 119 C16.9 95 47.3 123 91.8 103 C125.1 89 135 67 164.2 75 C195 81 212.7 55 239 41 C270.9 27 289.4 45 327 11 C352.8 -13 373.9 3 404.1 -13 C436.2 -31 460.1 -19 513 -49" />
+            <path class="branch-hair" d="M-41.9 138 C8 114 43.6 142 85 122 C119.1 108 133.8 86 161.7 94 C188.8 100 208.2 74 235.2 60 C264.8 46 282 64 320.2 30 C349.1 6 366.7 22 398.3 6 C430.2 -12 452 0 510.2 -30" />
+            <path class="branch-knot" d="M84 112 C97 122 110 120 122 108 M162 86 C174 96 187 93 198 81 M236 52 C248 62 261 59 272 47 M322 22 C333 32 346 29 356 18" />
+          </g>
+          <g class="willow-tendrils tendril-far">
+            <path d="M89.9 116.6 C93.8 151.3 91 188.1 96.7 218.8" />
+            <path d="M102.6 108.9 C109.6 178.6 104.7 252.3 115.1 313.8" />
+            <path d="M142.1 89.7 C152.9 120.6 145.3 153.4 161.1 180.7" />
+            <path d="M157.9 86.1 C171.3 130.9 161.9 178.4 181.5 217.9" />
+            <path d="M175.5 87.8 C191.4 133.7 180.2 182.4 203.5 223" />
+            <path d="M199.2 80.9 C205.4 126.6 201.1 174.9 210.2 215.2" />
+            <path d="M350.4 12.6 C342.3 77.7 348.1 146.7 336.1 204.2" />
+            <path d="M409.2 -2.9 C382.2 72.5 401.3 152.3 361.6 218.7" />
+          </g>
+          <g class="willow-tendrils tendril-mid">
+            <path d="M244.9 50.8 C249.1 79.2 246.2 109.3 252.3 134.3" />
+            <path d="M249.8 51.7 C254.3 128.7 251.1 210.2 257.7 278.1" />
+            <path d="M269.8 49.3 C271.2 143.5 270.2 243.2 272.4 326.4" />
+            <path d="M315.8 31 C314 57.5 315.2 85.6 312.7 109" />
+          </g>
+          <g class="willow-tendrils tendril-near">
+            <path d="M373.5 9.9 C349.2 75.9 366.3 145.7 330.7 204" />
+            <path d="M400.4 0.8 C368.9 97.2 391.1 199.3 344.9 284.3" />
+            <path d="M446.4 -14.2 C407 106.4 434.8 234.2 376.9 340.6" />
+            <path d="M484.6 -22.4 C464.5 106 478.7 242 449.1 355.3" />
+          </g>
+          <g class="willow-leaves leaf-far">
+            <use href="#willow-leaf" transform="translate(91.4 134.3) rotate(112.4) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(92.2 155.5) rotate(51.5) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(93.3 187.1) rotate(49.4) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(95.2 208.7) rotate(61.7) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(104.4 129.9) rotate(61.4) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(106 159.7) rotate(39.3) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(106.3 161.7) rotate(128.1) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(106.9 187) rotate(127.1) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(107.5 212.4) rotate(51.9) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(108.1 233.5) rotate(124.2) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(109 253.7) rotate(40.3) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(110.8 279.5) rotate(40.4) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(111.4 281.1) rotate(104) scale(0.2)" />
+            <use href="#willow-leaf" transform="translate(114.2 308.2) rotate(130.9) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(144.8 99) rotate(99.4) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(149.1 129.4) rotate(49) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(152.3 155.7) rotate(89.2) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(159.8 178.2) rotate(41.5) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(162.1 103.7) rotate(72.8) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(164.4 119) rotate(122) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(162.9 122.8) rotate(45) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(168.6 167.9) rotate(131.7) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(170.1 179.2) rotate(32.4) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(169.2 181.4) rotate(130.3) scale(0.2)" />
+            <use href="#willow-leaf" transform="translate(179.8 214.4) rotate(101.2) scale(0.2)" />
+            <use href="#willow-leaf" transform="translate(179.9 103.2) rotate(68.5) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(183.2 121.6) rotate(103.8) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(187.2 162.7) rotate(51.2) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(190.2 184.7) rotate(30.2) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(191.3 188.4) rotate(130.2) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(197.2 209.9) rotate(95.6) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(197.7 211.8) rotate(49.1) scale(0.2)" />
+            <use href="#willow-leaf" transform="translate(201.2 99.5) rotate(110) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(203.1 134.6) rotate(57.7) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(203.7 151.6) rotate(137.9) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(205.3 182) rotate(128.2) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(209.4 211.6) rotate(58) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(251.7 132) rotate(59.3) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(250.5 134.3) rotate(111.5) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(254.6 232.7) rotate(106.3) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(255.8 255) rotate(60.3) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(257 270.9) rotate(116.2) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(258.4 273.7) rotate(44.5) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(271.1 249.7) rotate(137.6) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(272.4 250.7) rotate(60.4) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(271.4 270.8) rotate(76.1) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(271.8 302.8) rotate(140.6) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(272.2 318.8) rotate(78.1) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(271.6 320.2) rotate(109.2) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(312.9 106.9) rotate(51.2) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(348.4 32.2) rotate(46.5) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(346.3 64.7) rotate(65.7) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(345.9 76) rotate(116.5) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(344.6 77.7) rotate(62.1) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(345.1 98.9) rotate(67.6) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(344.1 127.3) rotate(68) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(342.5 156.1) rotate(53.1) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(342.4 159.6) rotate(133.6) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(341 172.7) rotate(116.6) scale(0.2)" />
+            <use href="#willow-leaf" transform="translate(337.6 196.8) rotate(107.2) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(338.6 198.2) rotate(66) scale(0.2)" />
+            <use href="#willow-leaf" transform="translate(401.3 24.3) rotate(89) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(397.2 45.9) rotate(123.4) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(397.9 49.8) rotate(61.5) scale(0.2)" />
+            <use href="#willow-leaf" transform="translate(393.6 74) rotate(71.4) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(391.7 93.6) rotate(69.8) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(389.2 120.7) rotate(75.6) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(387.2 137.3) rotate(108.8) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(383.5 159.7) rotate(137.4) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(383 161.6) rotate(71) scale(0.2)" />
+            <use href="#willow-leaf" transform="translate(377.1 184.2) rotate(88.7) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(365.4 212) rotate(147.8) scale(0.3)" />
+          </g>
+          <g class="willow-leaves leaf-mid">
+            <use href="#willow-leaf" transform="translate(246.1 60.9) rotate(70.1) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(247.6 87.6) rotate(107.5) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(247.9 88.8) rotate(56) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(248.4 105.5) rotate(37.3) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(249.3 106.5) rotate(111.6) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(251.1 78.3) rotate(118.6) scale(0.6)" />
+            <use href="#willow-leaf" transform="translate(252 108.9) rotate(53.4) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(252.2 122.9) rotate(139.1) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(252.8 157.5) rotate(75.2) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(252.5 158.6) rotate(133.7) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(253.1 177.6) rotate(118.6) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(253.8 209.3) rotate(68.7) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(254 211.3) rotate(113.3) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(270.2 82.5) rotate(39.8) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(270.4 106.2) rotate(43.3) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(270.6 134.7) rotate(114.4) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(270.7 160.9) rotate(47.7) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(270.1 162.4) rotate(115.2) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(270.7 174.8) rotate(46.7) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(270.8 199) rotate(116.6) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(270.9 220.6) rotate(49.7) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(271.5 223.2) rotate(132.1) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(315.3 39) rotate(81.2) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(314.7 63.2) rotate(49.7) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(314.3 82.3) rotate(127.8) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(349.3 156.9) rotate(90.4) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(345.3 171.5) rotate(76.3) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(333.7 198.7) rotate(155.9) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(370.9 206.3) rotate(76.7) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(365.5 231.3) rotate(141.5) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(360.3 248.6) rotate(83.2) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(359.4 249.7) rotate(147.4) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(348.9 276.6) rotate(161.3) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(410.6 236.4) rotate(143.3) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(405 264.9) rotate(89.8) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(398.7 288.2) rotate(86.4) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(391.3 309.6) rotate(97.2) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(384.2 326.2) rotate(149.9) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(465.3 256.3) rotate(85.7) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(462.4 283.3) rotate(50.1) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(460.8 295.8) rotate(137.7) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(457.6 315.9) rotate(70.2) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(451.7 345) rotate(90.9) scale(0.4)" />
+          </g>
+          <g class="willow-leaves leaf-near">
+            <use href="#willow-leaf" transform="translate(365.6 37) rotate(131.2) scale(0.6)" />
+            <use href="#willow-leaf" transform="translate(361.1 63.2) rotate(129.9) scale(0.6)" />
+            <use href="#willow-leaf" transform="translate(358.5 86.4) rotate(141.6) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(357.4 98.2) rotate(70.7) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(354.6 125.7) rotate(148.4) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(391.3 35.2) rotate(134.5) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(390 36.3) rotate(63.4) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(386.4 63.2) rotate(83.1) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(384.4 78.7) rotate(126.4) scale(0.6)" />
+            <use href="#willow-leaf" transform="translate(385.1 80.9) rotate(52.5) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(381 113.1) rotate(73.3) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(380.4 114.5) rotate(145.3) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(379.3 133.8) rotate(140.3) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(377.1 158.4) rotate(73.7) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(375.6 173.2) rotate(109.2) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(436.5 22.2) rotate(86.5) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(431.3 48.4) rotate(125.9) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(428.8 64.3) rotate(74.3) scale(0.6)" />
+            <use href="#willow-leaf" transform="translate(425.9 87.6) rotate(109.8) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(422.5 121.3) rotate(74) scale(0.6)" />
+            <use href="#willow-leaf" transform="translate(420.1 150.9) rotate(117.4) scale(0.6)" />
+            <use href="#willow-leaf" transform="translate(417.9 176.4) rotate(86.6) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(415.5 200.9) rotate(137.6) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(413.5 217.2) rotate(49.6) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(479.3 18.6) rotate(84.3) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(477.2 41.2) rotate(57.1) scale(0.6)" />
+            <use href="#willow-leaf" transform="translate(475.4 64.6) rotate(123.6) scale(0.6)" />
+            <use href="#willow-leaf" transform="translate(474.3 82.7) rotate(127.6) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(472.8 113.6) rotate(44.5) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(472.5 115.5) rotate(128.2) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(472 133.3) rotate(57) scale(0.6)" />
+            <use href="#willow-leaf" transform="translate(471.1 154.2) rotate(41.8) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(469.5 192.2) rotate(40.9) scale(0.5)" />
+            <use href="#willow-leaf" transform="translate(468.4 213.2) rotate(51.1) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(466.9 237.1) rotate(127.4) scale(0.4)" />
+          </g>
+          <g class="willow-leaves leaf-fall">
+            <use href="#willow-leaf" transform="translate(86.4 305.8) rotate(24) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(190.7 399.2) rotate(100.2) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(299.1 300.6) rotate(127) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(330.4 366.3) rotate(139.6) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(102.7 329.5) rotate(187.3) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(413.6 392.9) rotate(71.5) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(226.2 384.3) rotate(185.4) scale(0.4)" />
+            <use href="#willow-leaf" transform="translate(32.4 382.5) rotate(-38.8) scale(0.3)" />
+            <use href="#willow-leaf" transform="translate(176.2 302.3) rotate(128.9) scale(0.4)" />
+          </g>
+          <g class="ink-pavilion">
+            <path d="M60 356 L87 328 L114 356" />
+            <path d="M53 355 Q87 339 121 355 L112 362 Q87 352 62 362Z" />
+            <path d="M66 333 Q87 309 108 333" />
+            <path d="M72 354 V379 M87 350 V379 M102 354 V379" />
+            <path d="M63 379 H111 M56 383 H118" />
+            <path d="M75 330 L87 317 L99 330" />
+          </g>
+          <g class="ink-mist">
+            <path d="M26 396 C70 384 113 388 153 402" />
+            <path d="M43 411 C94 398 141 403 186 417" />
+            <path d="M70 428 C110 419 153 422 193 434" />
+          </g>
+        </svg>
