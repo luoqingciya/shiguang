@@ -49,11 +49,14 @@ from .pixiv.constants import MAX_IMAGE_COUNT
 from .pixiv.downloader import ImageDownloader
 from .pixiv.index import ImageIndexStore
 from .pixiv.lolicon import LoliconClient
+from .plugin_api import PluginWebApi
 
 logger = logging.getLogger(__name__)
 
 LOG_PREFIX = "[ShiGuang]"
 PLUGIN_VERSION = "1.0.0"
+WEB_INTERNAL_ERROR_MESSAGE = "服务内部错误，请稍后重试"
+WEB_PAGE_TITLE = "拾光集管理中心"
 
 AUTO_TRIGGER_PATTERN = r"^/?(来\s*(.*?)(份|个|张|点))(.*?)(福利|色|瑟|涩|塞)?图$"
 CHECKIN_REGEX_PATTERN = r"^(?!/)签到$"
@@ -138,6 +141,7 @@ class ShiguangPlugin(
         self.checkin_cache: CheckinCardCache | None = None
         self.checkin_greeting: CheckinGreetingGenerator | None = None
         self.holiday_calendar: HolidayCalendar | None = None
+        self.plugin_web_api: PluginWebApi | None = None
         self._holiday_refresh_task: asyncio.Task | None = None
         self._termination_task: asyncio.Task[None] | None = None
         self._checkin_flow_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = (
@@ -157,6 +161,7 @@ class ShiguangPlugin(
 
         await asyncio.to_thread(self._ensure_checkin_hitokoto_defaults)
         self._register_matchers()
+        self._register_web_center()
         await self._initialize()
 
     async def on_unload(self):
@@ -164,6 +169,23 @@ class ShiguangPlugin(
 
     async def on_shutdown(self):
         await self.terminate()
+
+    def _register_web_center(self) -> None:
+        """注册插件 Web API 与管理页面（Stage 5：WebUI 管理中心）"""
+        self.plugin_web_api = PluginWebApi(
+            self,
+            plugin_name=self.name,
+            log_prefix=LOG_PREFIX,
+            internal_error_message=WEB_INTERNAL_ERROR_MESSAGE,
+        )
+        self.plugin_web_api.register()
+        static_dir = Path(__file__).resolve().parent / "pages" / "pluginCenter"
+        self.register_page(
+            WEB_PAGE_TITLE,
+            icon="🌅",
+            static_dir=str(static_dir),
+        )
+        logger.info(f"{LOG_PREFIX} WebUI 管理中心已注册: {WEB_PAGE_TITLE}")
 
     def _ensure_checkin_hitokoto_defaults(self) -> None:
         if not isinstance(self.config.get("checkin_hitokoto_categories"), list):
