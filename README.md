@@ -20,11 +20,13 @@ Qingci-Bot 安全插画发图 + 签到插件，由 AstrBot 插件「画境拾珍
 ## 安装
 
 ```bash
-# 从插件市场安装（待上架）
-# 或手动克隆到 plugins/ 目录
+# 从插件市场安装：插件管理 → 插件市场 → 搜索「拾光集」（shiguang）
+# 或手动克隆到 CE 实例的插件目录（instances/<name>/plugins/shiguang）后重启：
+git clone https://gitee.com/luoqingciya/shiguang.git
+# GitHub 备用镜像：git clone https://github.com/luoqingciya/shiguang.git
 ```
 
-插件依赖自动安装：`pixivpy-async`、`aiohttp`、`Pillow`、`lunar-python`、`jinja2`。
+运行依赖：`aiohttp`（CE 主程序自带）。`Pillow`、`lunar-python`、`pixivpy-async`、`jinja2` 为可选——均为惰性导入，缺失时仅图片校验/农历节日/Pixiv 回退/签到卡渲染等功能按需降级，插件本身仍可正常加载。
 
 ## 配置
 
