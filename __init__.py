@@ -564,18 +564,18 @@ class ShiguangPlugin(
     # ============ 渲染（Stage 4：接入框架渲染器） ============
 
     async def _checkin_render_html(
-        self, template_path: str, data: dict, *, options: dict | None = None
+        self, template_html: str, data: dict, *, options: dict | None = None
     ):
-        """渲染签到 HTML 卡为图片；渲染能力不可用时返回 None（上层降级纯文本）"""
-        try:
-            import jinja2
+        """渲染签到 HTML 卡为图片；渲染能力不可用时返回 None（上层降级纯文本）
 
-            tpl = Path(template_path)
-            env = jinja2.Environment(
-                loader=jinja2.FileSystemLoader(str(tpl.parent)),
-                autoescape=jinja2.select_autoescape(["html", "xml"]),
-            )
-            html = env.get_template(tpl.name).render(data)
+        template_html 为 get_checkin_card_template() 产出的完整 HTML 字符串
+        （CSS 内联 + 字体 base64 + season artwork SVG 已嵌入），仅需 jinja2
+        填充变量后交给框架 HtmlRenderer 渲染。
+        """
+        try:
+            from jinja2 import Template
+
+            html = Template(template_html).render(data)
             renderer = getattr(self.bot, "html_renderer", None) if self.bot else None
             if renderer is None or not getattr(renderer, "is_supported", lambda: False)():
                 logger.debug(f"{LOG_PREFIX} HTML 渲染能力不可用，签到卡降级纯文本")
@@ -584,8 +584,8 @@ class ShiguangPlugin(
             viewport = opts.get("viewport") or {}
             result_path = await renderer.render_html(
                 html,
-                width=viewport.get("width") or 960,
-                height=viewport.get("height") or 540,
+                width=int(viewport.get("width") or 960),
+                height=int(viewport.get("height") or 540),
                 image_format=str(opts.get("type") or "jpeg"),
                 quality=int(opts.get("quality") or 90),
                 timeout=30.0,
