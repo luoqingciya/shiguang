@@ -55,4 +55,4 @@ Qingci-Bot 安全插画发图 + 签到插件，由 AstrBot 插件「画境拾珍
 
 ## 许可
 
-GPL-3.0-or-later。移植自 [shitianyaa/astrbot_plugin_get_px](https://github.com/shitianyaa/astrbot_plugin_get_px)（MIT）。
+MIT License（[LICENSE](./LICENSE) 保留原插件作者 Sham1k0 版权声明）。移植自 [shitianyaa/astrbot_plugin_get_px](https://github.com/shitianyaa/astrbot_plugin_get_px)。

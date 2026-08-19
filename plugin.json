@@ -7,6 +7,6 @@
   "type": "sdk",
   "main": "shiguang",
   "icon": "🌅",
-  "license": "GPL-3.0-or-later",
+  "license": "MIT",
   "requirements": ["qingci-plugin-sdk>=1.9.0"]
 }
