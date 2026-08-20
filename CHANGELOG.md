@@ -2,11 +2,26 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [1.0.1] - 2026-08-19
+## [1.0.1] - 2026-08-21
 
 ### Fixed
 
-- **降低顶层依赖面，修复打包（EXE）环境加载失败**：`Pillow` 与 `lunar-python` 由顶层导入改为惰性导入（`pixiv/downloader.py`、`checkin/cache.py`、`checkin/content.py`）——依赖未装齐时插件仍可加载并出现在插件列表，相关功能（图片校验/尺寸、农历节日）按需降级，不再因缺包导致整个插件加载失败。
+- **市场版本同步（CE-4）**：`PLUGIN_VERSION` 改为从 `plugin.json` 读取作为权威来源（版本统一 `1.0.1`），规避插件多处方言漂移导致的持久"可更新"死循环
+- **降低顶层依赖面，修复打包（EXE）环境加载失败**：`Pillow` 与 `lunar-python` 由顶层导入改为惰性导入（`pixiv/downloader.py`、`checkin/cache.py`、`checkin/content.py`）——依赖未装齐时插件仍可加载并出现在插件列表，相关功能（图片校验/尺寸、农历节日）按需降级，不再因缺包导致整个插件加载失败
+
+### Performance
+
+- **签到卡渲染模板编译缓存**：Jinja2 模板按内容缓存编译结果，避免每次签到卡渲染重复编译
+- **签到背景去重查询缓存**：同一背景源 60s 内的已用作品 ID 走内存缓存，减少 SQLite 全量查询
+- **黑名单缩略图分批加载**：WebUI 每次批量请求 16 张，避免单次请求体量过大
+- **签到备份导出流式读取**：快照导出改为游标迭代，降低大数据量下的内存占用
+
+### Changed
+
+- **签到背景逻辑拆分为独立服务**：背景下载/恢复/占用管理从 `CheckinArtworkMixin`（约 830 行）拆至 `CheckinBackgroundService`，降低 Mixin 职责复杂度
+- **配置访问统一为类型化快照**：新增 `ShiguangSettings`，`_cfg_*` 优先读取类型化配置快照，集中声明全部配置 key
+- **签到流程锁改为显式字典**：`weakref.WeakValueDictionary` 中的锁可能在无强引用时被 GC 提前回收导致串行失效，改为显式 `dict` 并带容量上限（仅逐出当前未持有的锁）
+- **上传临时文件兜底清理**：残留的 `.upload-*` 临时文件在备份修剪时自动清理（超过 1 小时）
 
 ## [1.0.0] - 2026-08-19（首个发布）
 

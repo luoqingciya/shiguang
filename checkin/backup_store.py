@@ -42,26 +42,21 @@ class BackupStoreMixin:
     def _export_snapshot_sync(self) -> dict[str, Any]:
         with closing(self._connect()) as conn:
             users = [
-                dict(row)
-                for row in conn.execute("SELECT * FROM checkin_users ORDER BY user_id").fetchall()
+                dict(row) for row in conn.execute("SELECT * FROM checkin_users ORDER BY user_id")
             ]
             records = [
                 dict(row)
-                for row in conn.execute(
-                    "SELECT * FROM checkin_records ORDER BY date_key, user_id"
-                ).fetchall()
+                for row in conn.execute("SELECT * FROM checkin_records ORDER BY date_key, user_id")
             ]
             global_events = [
                 dict(row)
-                for row in conn.execute(
-                    "SELECT * FROM checkin_global_events ORDER BY event_id"
-                ).fetchall()
+                for row in conn.execute("SELECT * FROM checkin_global_events ORDER BY event_id")
             ]
             achievements = [
                 dict(row)
                 for row in conn.execute(
                     "SELECT * FROM checkin_achievements ORDER BY user_id, achievement_id"
-                ).fetchall()
+                )
             ]
             user_themes = [
                 dict(row)
@@ -70,7 +65,7 @@ class BackupStoreMixin:
                     SELECT * FROM checkin_user_themes
                     ORDER BY user_id, acquired_at, theme_id
                     """
-                ).fetchall()
+                )
             ]
             group_presence = [
                 dict(row)
@@ -79,7 +74,7 @@ class BackupStoreMixin:
                     SELECT * FROM checkin_group_presence
                     ORDER BY date_key, group_id, user_id
                     """
-                ).fetchall()
+                )
             ]
         return {
             "schema_version": CHECKIN_SNAPSHOT_SCHEMA_VERSION,

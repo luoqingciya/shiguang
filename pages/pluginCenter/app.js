@@ -158,7 +158,9 @@ async function loadFont() {
   } catch { /* fallback to system font */ }
 }
 
-// Batch load thumbnails for blacklist
+// Batch load thumbnails for blacklist（分批请求，避免单次请求体量过大）
+const BLACKLIST_THUMB_BATCH_SIZE = 16;
+
 async function loadBlacklistThumbnails() {
   const idsWithThumb = state.blacklist
     .filter(item => item.thumb_id)
@@ -169,12 +171,16 @@ async function loadBlacklistThumbnails() {
     return;
   }
 
-  try {
-    const res = await apiPost("image-blacklist/thumb-data-batch", { ids: idsWithThumb });
-    state.thumbs = res.thumbs || {};
-  } catch (error) {
-    console.warn("Failed to load blacklist thumbnails:", error);
-    state.thumbs = {};
+  state.thumbs = {};
+  for (let i = 0; i < idsWithThumb.length; i += BLACKLIST_THUMB_BATCH_SIZE) {
+    const chunk = idsWithThumb.slice(i, i + BLACKLIST_THUMB_BATCH_SIZE);
+    try {
+      const res = await apiPost("image-blacklist/thumb-data-batch", { ids: chunk });
+      Object.assign(state.thumbs, res.thumbs || {});
+    } catch (error) {
+      console.warn("Failed to load blacklist thumbnails:", error);
+      break;
+    }
   }
 }
 

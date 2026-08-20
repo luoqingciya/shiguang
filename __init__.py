@@ -19,11 +19,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import time
-import weakref
+from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 from qingci_plugin_sdk import (
     ADMIN,
@@ -38,6 +41,7 @@ from ._event import EventAdapter, result_to_reply
 from .checkin import CheckinStore, UnversionedCheckinDatabaseError
 from .checkin.application import CheckinApplicationMixin
 from .checkin.artwork import CheckinArtworkMixin
+from .checkin.background_service import CheckinBackgroundService
 from .checkin.cache import CheckinCardCache
 from .checkin.commands import CheckinCommandMixin
 from .checkin.greeting import CheckinGreetingGenerator
@@ -54,7 +58,21 @@ from .plugin_api import PluginWebApi
 logger = logging.getLogger(__name__)
 
 LOG_PREFIX = "[ShiGuang]"
-PLUGIN_VERSION = "1.0.0"
+
+
+def _read_plugin_version() -> str:
+    """从 plugin.json 读取版本作为权威来源，规避多处方言漂移导致的持久"可更新"死循环"""
+    try:
+        meta = json.loads(
+            (Path(__file__).resolve().parent / "plugin.json").read_text(encoding="utf-8")
+        )
+        version = meta.get("version") if isinstance(meta, dict) else None
+    except (OSError, ValueError):
+        version = None
+    return str(version) if version else "1.0.1"
+
+
+PLUGIN_VERSION = _read_plugin_version()
 WEB_INTERNAL_ERROR_MESSAGE = "服务内部错误，请稍后重试"
 WEB_PAGE_TITLE = "拾光集管理中心"
 
@@ -75,6 +93,14 @@ CHINESE_NUMBER_MAP = {
     "九": "9",
     "十": "10",
 }
+
+
+@lru_cache(maxsize=32)
+def _compile_checkin_template(template_html: str):
+    """缓存编译后的 Jinja2 模板，避免每次签到卡渲染重复编译。"""
+    from jinja2 import Template
+
+    return Template(template_html)
 
 
 class Config:
@@ -113,6 +139,58 @@ class Config:
     webui_font_source: str = "mirror"
 
 
+@dataclass
+class ShiguangSettings:
+    """运行期类型化配置快照（由 on_load 从 self.config 构建）。
+
+    字段与 Config 一一对应，但默认值为 None 表示「用户未配置」，
+    由 _cfg_* 在读取时回退到各调用点的默认参数，避免与调用点默认不一致。
+    集中声明配置 key 便于 IDE 提示与后续校验。
+    """
+
+    pixiv_refresh_token: str | None = None
+    lolicon_api_url: str | None = None
+    lolicon_exclude_ai: bool | None = None
+    lolicon_image_proxy_origins: str | None = None
+    filter_manga: bool | None = None
+    max_count: int | None = None
+    dedupe_days: int | None = None
+    dedupe_ttl_hours: float | None = None
+    dedupe_days_migrated: bool | None = None
+    request_timeout: float | None = None
+    image_quality: str | None = None
+    auto_downgrade_original_mb: float | None = None
+    forward_threshold: int | None = None
+    send_as_forward: bool | None = None
+    auto_trigger_enabled: bool | None = None
+    checkin_enabled: bool | None = None
+    checkin_bot_name: str | None = None
+    checkin_background_mode: str | None = None
+    checkin_background_refresh_cost: int | None = None
+    checkin_theme_cost: int | None = None
+    checkin_background_tag: str | None = None
+    checkin_custom_background: str | None = None
+    checkin_avatar_enabled: bool | None = None
+    checkin_card_quality_tier: str | None = None
+    checkin_greeting_mode: str | None = None
+    checkin_hitokoto_categories: list | None = None
+    checkin_ai_greeting_provider_id: str | None = None
+    checkin_ai_greeting_prompt: str | None = None
+    checkin_ai_greeting_timeout: float | None = None
+    checkin_hitokoto_timeout: float | None = None
+    rate_limit_seconds: int | None = None
+    webui_font_source: str | None = None
+
+    @classmethod
+    def from_mapping(cls, mapping: dict[str, Any]) -> ShiguangSettings:
+        settings = cls()
+        for name, value in mapping.items():
+            if value is None or not hasattr(settings, name):
+                continue
+            setattr(settings, name, value)
+        return settings
+
+
 class ShiguangPlugin(
     CheckinApplicationMixin,
     CheckinCommandMixin,
@@ -132,6 +210,7 @@ class ShiguangPlugin(
     def __init__(self):
         super().__init__()
         self.config: dict = {}
+        self.settings: ShiguangSettings | None = None
         self.client: PixivClient | None = None
         self.lolicon_client: LoliconClient | None = None
         self.downloader = ImageDownloader("")
@@ -140,13 +219,14 @@ class ShiguangPlugin(
         self.checkin_store: CheckinStore | None = None
         self.checkin_cache: CheckinCardCache | None = None
         self.checkin_greeting: CheckinGreetingGenerator | None = None
+        self.checkin_background_service: CheckinBackgroundService | None = None
         self.holiday_calendar: HolidayCalendar | None = None
         self.plugin_web_api: PluginWebApi | None = None
         self._holiday_refresh_task: asyncio.Task | None = None
         self._termination_task: asyncio.Task[None] | None = None
-        self._checkin_flow_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = (
-            weakref.WeakValueDictionary()
-        )
+        # 显式 dict 承载签到流程锁：WeakValueDictionary 中的锁可能在
+        # 无外部强引用时被 GC 提前回收，并发下重建锁会破坏串行保证
+        self._checkin_flow_locks: dict[str, asyncio.Lock] = {}
 
     # ============ 生命周期 ============
 
@@ -157,12 +237,14 @@ class ShiguangPlugin(
         elif hasattr(cfg, "model_dump"):
             cfg = cfg.model_dump()
         self.config = dict(cfg)
+        self.settings = ShiguangSettings.from_mapping(self.config)
         self.downloader = ImageDownloader(self._cfg_str("lolicon_image_proxy_origins", ""))
 
         await asyncio.to_thread(self._ensure_checkin_hitokoto_defaults)
         self._register_matchers()
         self._register_web_center()
         await self._initialize()
+        self.checkin_background_service = CheckinBackgroundService(self)
 
     async def on_unload(self):
         await self.terminate()
@@ -190,6 +272,8 @@ class ShiguangPlugin(
     def _ensure_checkin_hitokoto_defaults(self) -> None:
         if not isinstance(self.config.get("checkin_hitokoto_categories"), list):
             self.config["checkin_hitokoto_categories"] = ["全部"]
+        if self.settings is not None:
+            self.settings.checkin_hitokoto_categories = self.config["checkin_hitokoto_categories"]
 
     # ============ 命令注册 ============
 
@@ -373,6 +457,7 @@ class ShiguangPlugin(
                 logger.warning(f"{LOG_PREFIX} 关闭图片索引失败: error_type={type(exc).__name__}")
         self.image_index = None
         self.checkin_store = None
+        self.checkin_background_service = None
         logger.info(f"{LOG_PREFIX} 插件已停止")
 
     async def _refresh_holiday_calendar(self) -> None:
@@ -595,9 +680,7 @@ class ShiguangPlugin(
         填充变量后交给框架 HtmlRenderer 渲染。
         """
         try:
-            from jinja2 import Template
-
-            html = Template(template_html).render(data)
+            html = _compile_checkin_template(template_html).render(data)
             renderer = getattr(self.bot, "html_renderer", None) if self.bot else None
             if renderer is None or not getattr(renderer, "is_supported", lambda: False)():
                 logger.debug(f"{LOG_PREFIX} HTML 渲染能力不可用，签到卡降级纯文本")
@@ -650,12 +733,18 @@ class ShiguangPlugin(
     def _checkin_flow_lock(self, user_id: str) -> asyncio.Lock:
         locks = getattr(self, "_checkin_flow_locks", None)
         if locks is None:
-            locks = weakref.WeakValueDictionary()
+            locks = {}
             self._checkin_flow_locks = locks
         lock = locks.get(user_id)
         if lock is None:
             lock = asyncio.Lock()
             locks[user_id] = lock
+            if len(locks) > 1024:
+                # 容量上限：仅逐出当前未被持有的锁，防止长时间运行的实例
+                # 内存无限增长，同时不破坏在途会话的串行保证
+                stale_ids = [key for key, item in locks.items() if not item.locked()][:256]
+                for stale_id in stale_ids:
+                    locks.pop(stale_id, None)
         return lock
 
     # ============ 配置读取（带类型校验） ============
@@ -668,18 +757,30 @@ class ShiguangPlugin(
             legacy_value = self._cfg_float("dedupe_ttl_hours", 24.0, 0.0, 24.0)
             config["dedupe_days"] = 0 if legacy_value <= 0 else 1
             config["dedupe_days_migrated"] = True
+            if self.settings is not None:
+                self.settings.dedupe_days = config["dedupe_days"]
+                self.settings.dedupe_days_migrated = True
             logger.info(
                 f"{LOG_PREFIX} 已迁移旧去重配置: dedupe_ttl_hours={legacy_value:g} -> "
                 f"dedupe_days={config['dedupe_days']}"
             )
         return self._cfg_int("dedupe_days", 1, 0, 7)
 
+    def _settings_value(self, key: str, default: Any) -> Any:
+        """优先读取类型化配置快照；未配置时回退 self.config（兼容测试等未调 on_load 的场景）。"""
+        settings = getattr(self, "settings", None)
+        if settings is not None and hasattr(settings, key):
+            value = getattr(settings, key)
+            if value is not None:
+                return value
+        return self.config.get(key, default)
+
     def _cfg_str(self, key: str, default: str = "") -> str:
-        val = self.config.get(key, default)
+        val = self._settings_value(key, default)
         return str(val).strip() if val is not None else default
 
     def _cfg_int(self, key: str, default: int, lo: int, hi: int) -> int:
-        raw = self.config.get(key, default)
+        raw = self._settings_value(key, default)
         if isinstance(raw, (bool, float)):
             return default
         try:
@@ -694,14 +795,15 @@ class ShiguangPlugin(
         return 0 if self._cfg_bool("send_as_forward", True) else MAX_IMAGE_COUNT
 
     def _cfg_float(self, key: str, default: float, lo: float, hi: float) -> float:
+        raw = self._settings_value(key, default)
         try:
-            val = float(self.config.get(key, default))
+            val = float(raw)
         except (TypeError, ValueError):
             return default
         return val if lo <= val <= hi else default
 
     def _cfg_bool(self, key: str, default: bool) -> bool:
-        val = self.config.get(key, default)
+        val = self._settings_value(key, default)
         if isinstance(val, bool):
             return val
         if isinstance(val, str):

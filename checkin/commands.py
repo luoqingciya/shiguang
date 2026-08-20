@@ -114,6 +114,23 @@ class CheckinCommandMixin:
                 )
         if removed:
             logger.info(f"{LOG_PREFIX} 签到旧备份已清理: removed_count={removed}")
+        self._prune_checkin_upload_temps(backup_dir)
+
+    def _prune_checkin_upload_temps(self, backup_dir: Path) -> None:
+        """清理残留的上传临时文件（正常路径 finally 已删除，此处兜底防崩溃残留）。"""
+        cutoff = time.time() - 3600
+        try:
+            for upload in backup_dir.glob(".upload-*"):
+                try:
+                    if upload.is_file() and upload.stat().st_mtime < cutoff:
+                        upload.unlink(missing_ok=True)
+                except OSError as exc:
+                    logger.debug(
+                        f"{LOG_PREFIX} 上传临时文件清理失败: "
+                        f"file={upload.name} error_type={type(exc).__name__}"
+                    )
+        except OSError:
+            pass
 
     async def _read_uploaded_file_bytes(self, upload) -> bytes:
         filename = str(getattr(upload, "filename", "") or "").strip() or "upload.json"
