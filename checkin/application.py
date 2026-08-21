@@ -572,15 +572,17 @@ class CheckinApplicationMixin:
             if event.get_platform_name() != "onebot":
                 logger.info(f"{LOG_PREFIX} QQ 生日读取跳过: platform={event.get_platform_name()}")
                 return QQBirthdayLookup(None, False)
-            bot = getattr(event, "bot", None)
-            if bot is None or not hasattr(bot, "call_action"):
-                logger.warning(f"{LOG_PREFIX} QQ 生日读取失败: 当前事件不支持 call_action")
+            # 走 EventAdapter 既有连接通道（plugin.connection / bot.connection），
+            # 而非 event.bot——EventAdapter 不暴露 bot 属性，恒为 None 导致
+            # 生日查询永远走不到 call_action
+            connection = event._connection()
+            if connection is None or not hasattr(connection, "call_api"):
+                logger.warning(f"{LOG_PREFIX} QQ 生日读取失败: 连接通道不可用")
                 return QQBirthdayLookup(None, False)
             payload = await asyncio.wait_for(
-                bot.call_action(
-                    action="get_stranger_info",
-                    user_id=int(user_id),
-                    no_cache=True,
+                connection.call_api(
+                    "get_stranger_info",
+                    {"user_id": int(user_id), "no_cache": True},
                 ),
                 timeout=3.0,
             )
