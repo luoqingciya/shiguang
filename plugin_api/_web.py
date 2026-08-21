@@ -103,14 +103,19 @@ def jsonify(data: Any, status: int = 200):
     return (data, status)
 
 
-def send_file(
+async def send_file(
     path: str,
     mimetype: str | None = None,
     as_attachment: bool = False,
     attachment_filename: str | None = None,
     **kwargs: Any,
 ) -> FileResponse:
-    """FastAPI FileResponse；attachment_filename → filename"""
+    """FastAPI FileResponse；attachment_filename → filename
+
+    async 定义以兼容原 quart 风格的 `await send_file(...)` 调用
+    （quart 的 send_file 为协程函数；同步返回 FileResponse 会导致
+    `await` 非协程对象抛 TypeError）。
+    """
     return FileResponse(
         path,
         media_type=mimetype,

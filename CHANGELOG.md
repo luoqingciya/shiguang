@@ -2,6 +2,12 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.2] - 2026-08-21
+
+### Fixed
+
+- **WebUI「数据管理 → 下载备份」报服务器内部错误**：`plugin_api/_web.py` 的 `send_file` 移植为同步函数（直接返回 `FileResponse`），但 `api.py` 的 `checkin_export` 沿用 quart 风格 `await send_file(...)` —— `await` 非协程对象抛 `TypeError`，被 `internal_error` 捕获返回 500。现改为 `async def send_file`，保持 `await` 调用不变，导出下载恢复正常
+
 ## [1.0.1] - 2026-08-21
 
 ### Fixed

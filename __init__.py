@@ -69,7 +69,7 @@ def _read_plugin_version() -> str:
         version = meta.get("version") if isinstance(meta, dict) else None
     except (OSError, ValueError):
         version = None
-    return str(version) if version else "1.0.1"
+    return str(version) if version else "1.0.2"
 
 
 PLUGIN_VERSION = _read_plugin_version()
