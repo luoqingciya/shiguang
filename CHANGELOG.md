@@ -2,6 +2,14 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.3] - 2026-08-21
+
+### Fixed
+
+- **`/签到帮助` 回复原始字典文本**：Matcher handler 返回图片链（v12 段数组）会被框架 `str()` 化为字典文本。`cmd_checkin_help` 改为 `event.send` 主动发送图片并返回 `None`（与 `/签到` 主流程一致），帮助图恢复
+- **QQ 生日读取报错「当前事件不支持 call_action」**：`_fetch_qq_birthday` 原从 `event.bot` 取 Bot，但 `EventAdapter` 从不暴露 `bot` 属性（恒为 None）导致生日查询永远走不到。改为走 `event._connection().call_api("get_stranger_info", ...)` 既有连接通道，并修正误导性告警文案；签到问候的 QQ 生日数据恢复可用
+- **子命令不触发**：`签到管理 / 签到排行 / 签到我的 / 签到商店` 等在 `on_load` 内注册 `on_command(subcommands=...)`，SDK 旧版子指令 matcher 只进模块级收集器而被丢弃。配合 SDK 1.13.1（子指令挂 `parent.meta["sub_matchers"]`）+ CE 1.16.2 展开注册，全部子命令恢复触发（插件本体无需改动，随框架升级生效）
+
 ## [1.0.2] - 2026-08-21
 
 ### Fixed

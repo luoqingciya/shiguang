@@ -69,7 +69,7 @@ def _read_plugin_version() -> str:
         version = meta.get("version") if isinstance(meta, dict) else None
     except (OSError, ValueError):
         version = None
-    return str(version) if version else "1.0.2"
+    return str(version) if version else "1.0.3"
 
 
 PLUGIN_VERSION = _read_plugin_version()
@@ -524,12 +524,12 @@ class ShiguangPlugin(
         if not CHECKIN_HELP_IMAGE.is_file():
             logger.error(f"{LOG_PREFIX} 签到帮助图片不存在: {CHECKIN_HELP_IMAGE}")
             return "签到帮助图片缺失，请联系管理员重新安装插件"
-        return self._send_checkin_help_image(event)
-
-    def _send_checkin_help_image(self, event: EventAdapter):
         from ._event import Image as _Image
 
-        return _components_to_reply([_Image.fromFileSystem(str(CHECKIN_HELP_IMAGE))])
+        # 主动发送（与 /签到 主流程一致）：Matcher handler 返回值若返回图片链
+        # 会被框架 str 化为字典文本，故走 event.send 直接发送图片并返回 None
+        await event.send(event.chain_result([_Image.fromFileSystem(str(CHECKIN_HELP_IMAGE))]))
+        return None
 
     # 签到我的
     async def cmd_checkin_status(self, ctx: MatcherContext):
@@ -809,9 +809,3 @@ class ShiguangPlugin(
         if isinstance(val, str):
             return val.lower() in ("true", "1", "yes")
         return bool(val) if val is not None else default
-
-
-def _components_to_reply(content: list) -> list[dict]:
-    from ._event import components_to_segments
-
-    return list(components_to_segments(content))
