@@ -17,6 +17,16 @@ const state = {
   membersLoading: false,
   selectedMember: null,
   memberDialogTrigger: null,
+  operations: {},
+  subscriptions: [],
+  reminders: [],
+  auditLogs: [],
+  auditAction: "",
+  auditOperator: "",
+  auditTotal: 0,
+  auditOffset: 0,
+  auditPageSize: 50,
+  auditLoading: false,
   loading: false,
   loaded: {
     overview: false,
@@ -24,6 +34,8 @@ const state = {
     safety: false,
     blacklist: false,
     members: false,
+    operations: false,
+    audit: false,
   },
 };
 
@@ -77,6 +89,17 @@ const els = {
   globalErrorMessage: $("globalErrorMessage"),
   termError: $("termError"),
   blacklistError: $("blacklistError"),
+  statsCards: $("statsCards"),
+  subscriptionList: $("subscriptionList"),
+  subscriptionCount: $("subscriptionCount"),
+  reminderList: $("reminderList"),
+  reminderCount: $("reminderCount"),
+  seasonSettleGroup: $("seasonSettleGroup"),
+  seasonSettleBtn: $("seasonSettleBtn"),
+  seasonSettleResult: $("seasonSettleResult"),
+  auditBody: $("auditBody"),
+  auditEmpty: $("auditEmpty"),
+  auditLoadMore: $("auditLoadMore"),
 };
 
 function escapeHtml(value) {
@@ -262,6 +285,22 @@ async function reloadAll() {
       }
     }
 
+    if (state.loaded.operations) {
+      try {
+        await loadOperations();
+      } catch (error) {
+        failures.push(errorMessage(error, "运营数据读取失败"));
+      }
+    }
+
+    if (state.loaded.audit) {
+      try {
+        await loadAudit({ reset: true });
+      } catch (error) {
+        failures.push(errorMessage(error, "审计日志读取失败"));
+      }
+    }
+
     if (failures.length) {
       showGlobalError(failures);
       showToast("部分数据加载失败，可重试", "error");
@@ -316,6 +355,7 @@ function renderGroups() {
   const group = currentGroup();
   els.selectedGroupName.textContent = group?.group_name || group?.group_id || "群签到轨道";
   els.selectedGroupMeta.textContent = `${group?.platform || "unknown"} / GROUP ${group?.group_id || "-"}`;
+  renderSeasonSettle();
 }
 
 function renderGroupsError() {
@@ -334,19 +374,27 @@ async function loadRanking() {
   }
   els.rankingContent.innerHTML = '<div class="empty">正在读取榜单，请稍候…</div>';
   try {
-    const [ranking, trend] = await Promise.all([
-      apiGet("checkin-ranking", {
+    if (state.rankingType === "season") {
+      const ranking = await apiGet("checkin-season", {
         group_id: state.selectedGroup,
-        type: state.rankingType,
         limit: 100,
-      }),
-      apiGet("checkin-trend", {
-        group_id: state.selectedGroup,
-        days: state.trendDays,
-      }),
-    ]);
-    renderRanking(ranking);
-    renderTrend(trend.trend || []);
+      });
+      renderRanking(ranking);
+    } else {
+      const [ranking, trend] = await Promise.all([
+        apiGet("checkin-ranking", {
+          group_id: state.selectedGroup,
+          type: state.rankingType,
+          limit: 100,
+        }),
+        apiGet("checkin-trend", {
+          group_id: state.selectedGroup,
+          days: state.trendDays,
+        }),
+      ]);
+      renderRanking(ranking);
+      renderTrend(trend.trend || []);
+    }
   } catch (error) {
     els.rankingContent.innerHTML = `
       <div class="empty error">
@@ -366,7 +414,7 @@ function renderRanking(result) {
     els.rankingContent.innerHTML = '<div class="empty">当前榜单还没有记录，快去签到吧！</div>';
     return;
   }
-  const units = { month: "天", streak: "天", total: "天" };
+  const units = { month: "天", streak: "天", total: "天", season: "天" };
   els.rankingContent.innerHTML = entries.map((entry) => {
     const raw = String(entry.value ?? "");
     let value = "";
@@ -629,6 +677,265 @@ async function reloadBlacklist() {
   }
 }
 
+async function loadOperations() {
+  els.statsCards.innerHTML = '<div class="empty">正在读取运营数据…</div>';
+  try {
+    const [statsResult, subscriptionsResult, remindersResult] = await Promise.allSettled([
+      apiGet("checkin-stats"),
+      apiGet("subscriptions"),
+      apiGet("reminders"),
+    ]);
+    const failures = [];
+    if (statsResult.status === "fulfilled") {
+      state.operations = statsResult.value;
+      state.loaded.operations = true;
+      renderOperations();
+    } else {
+      failures.push(errorMessage(statsResult.reason, "签到统计读取失败"));
+      renderOperationsError();
+    }
+    if (subscriptionsResult.status === "fulfilled") {
+      state.subscriptions = Array.isArray(subscriptionsResult.value.subscriptions)
+        ? subscriptionsResult.value.subscriptions
+        : [];
+      renderSubscriptions();
+    } else {
+      failures.push(errorMessage(subscriptionsResult.reason, "群订阅读取失败"));
+      renderSubscriptionsError();
+    }
+    if (remindersResult.status === "fulfilled") {
+      state.reminders = Array.isArray(remindersResult.value.reminders)
+        ? remindersResult.value.reminders
+        : [];
+      renderReminders();
+    } else {
+      failures.push(errorMessage(remindersResult.reason, "群提醒读取失败"));
+      renderRemindersError();
+    }
+    if (failures.length) showGlobalError(failures);
+  } catch (error) {
+    showGlobalError([errorMessage(error, "运营数据读取失败")]);
+  }
+}
+
+function renderOperations() {
+  const data = state.operations;
+  const cards = [
+    ["7 日活跃用户", formatCount(data.dau_7)],
+    ["7 日签到率", `${Number(data.week_checkin_rate ?? 0).toFixed(2)}%`],
+    ["30 日签到率", `${Number(data.month_checkin_rate ?? 0).toFixed(2)}%`],
+    ["累计用户", formatCount(data.total_users)],
+    ["累计签到记录", formatCount(data.total_records)],
+    ["累计群数", formatCount(data.total_groups)],
+  ];
+  els.statsCards.innerHTML = cards.map(([label, value]) => `
+    <div class="stat-card"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>
+  `).join("");
+}
+
+function renderOperationsError() {
+  els.statsCards.innerHTML = '<div class="empty error">签到统计暂时无法读取，请使用上方“重新加载”。</div>';
+}
+
+function renderSeasonSettle() {
+  els.seasonSettleGroup.innerHTML = state.groups.map((group) => `
+    <option value="${escapeHtml(group.group_id)}">${escapeHtml(group.group_name || group.group_id)} (${escapeHtml(group.group_id)})</option>
+  `).join("");
+}
+
+function renderSubscriptions() {
+  els.subscriptionCount.textContent = `${state.subscriptions.length} 项`;
+  if (!state.subscriptions.length) {
+    els.subscriptionList.innerHTML = '<div class="empty">还没有每日一图推送订阅群</div>';
+    return;
+  }
+  els.subscriptionList.innerHTML = state.subscriptions.map((item) => `
+    <article class="sub-row${item.enabled ? "" : " disabled"}">
+      <div class="sub-identity">
+        <strong>${escapeHtml(item.group_name || item.group_id)}</strong>
+        <small>群号: ${escapeHtml(item.group_id)} · ${escapeHtml(item.platform || "unknown")}</small>
+        <small>推送 ${escapeHtml(item.push_time || "09:00")} · 星期 ${escapeHtml(item.weekdays || "1,2,3,4,5,6,7")} · 标签 ${escapeHtml(item.tag || "无")}</small>
+      </div>
+      <label class="switch" title="${item.enabled ? "点击停用推送" : "点击启用推送"}">
+        <input type="checkbox" data-sub-toggle="${escapeHtml(item.group_id)}" ${item.enabled ? "checked" : ""} aria-label="启用或停用 ${escapeHtml(item.group_name || item.group_id)} 的每日推送" />
+        <span></span>
+      </label>
+      <form class="sub-tag-form" data-sub-tag-form="${escapeHtml(item.group_id)}">
+        <input type="text" maxlength="64" autocomplete="off" spellcheck="false" placeholder="推送标签" value="${escapeHtml(item.tag)}" aria-label="订阅标签" />
+        <button type="submit" class="secondary">保存标签</button>
+      </form>
+      <button type="button" class="sub-disable" data-sub-disable="${escapeHtml(item.group_id)}">停用</button>
+    </article>
+  `).join("");
+
+  els.subscriptionList.querySelectorAll("[data-sub-toggle]").forEach((input) => {
+    input.addEventListener("change", async () => {
+      const groupId = input.dataset.subToggle;
+      input.disabled = true;
+      try {
+        await apiPost("subscriptions/update", { group_id: groupId, enabled: input.checked });
+        showToast(input.checked ? "订阅已启用" : "订阅已停用");
+        await loadOperations();
+      } catch (error) {
+        showToast(error.message || "更新订阅失败", "error");
+        await loadOperations();
+      }
+    });
+  });
+
+  els.subscriptionList.querySelectorAll("[data-sub-tag-form]").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const groupId = form.dataset.subTagForm;
+      const tag = form.querySelector("input").value.trim();
+      const button = form.querySelector("button[type='submit']");
+      setButtonBusy(button, true, "正在保存…", "保存标签");
+      try {
+        await apiPost("subscriptions/update", { group_id: groupId, tag });
+        showToast("订阅标签已保存");
+        await loadOperations();
+      } catch (error) {
+        showToast(error.message || "保存标签失败", "error");
+        setButtonBusy(button, false, "正在保存…", "保存标签");
+      }
+    });
+  });
+
+  els.subscriptionList.querySelectorAll("[data-sub-disable]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const groupId = button.dataset.subDisable;
+      if (!await confirmAction("停用订阅", `确认要停用群 ${groupId} 的每日推送吗？`)) return;
+      button.disabled = true;
+      try {
+        await apiPost("subscriptions/update", { group_id: groupId, enabled: false });
+        showToast("订阅已停用");
+        await loadOperations();
+      } catch (error) {
+        button.disabled = false;
+        showToast(error.message || "停用订阅失败", "error");
+      }
+    });
+  });
+}
+
+function renderSubscriptionsError() {
+  els.subscriptionCount.textContent = "读取失败";
+  els.subscriptionList.innerHTML = '<div class="empty error">群订阅暂时无法读取。</div>';
+}
+
+function renderReminders() {
+  els.reminderCount.textContent = `${state.reminders.length} 项`;
+  if (!state.reminders.length) {
+    els.reminderList.innerHTML = '<div class="empty">还没有配置群签到提醒</div>';
+    return;
+  }
+  els.reminderList.innerHTML = state.reminders.map((item) => `
+    <article class="sub-row${item.enabled ? "" : " disabled"}">
+      <div class="sub-identity">
+        <strong>${escapeHtml(item.group_name || item.group_id)}</strong>
+        <small>群号: ${escapeHtml(item.group_id)} · ${escapeHtml(item.platform || "unknown")}</small>
+        <small>提醒时间 ${escapeHtml(item.remind_time || "21:00")}</small>
+      </div>
+      <label class="switch" title="${item.enabled ? "点击停用提醒" : "点击启用提醒"}">
+        <input type="checkbox" data-reminder-toggle="${escapeHtml(item.group_id)}" ${item.enabled ? "checked" : ""} aria-label="启用或停用 ${escapeHtml(item.group_name || item.group_id)} 的签到提醒" />
+        <span></span>
+      </label>
+      <form class="sub-tag-form" data-reminder-time-form="${escapeHtml(item.group_id)}">
+        <input type="time" value="${escapeHtml(item.remind_time || "21:00")}" aria-label="提醒时间" />
+        <button type="submit" class="secondary">保存时间</button>
+      </form>
+    </article>
+  `).join("");
+
+  els.reminderList.querySelectorAll("[data-reminder-toggle]").forEach((input) => {
+    input.addEventListener("change", async () => {
+      const groupId = input.dataset.reminderToggle;
+      input.disabled = true;
+      try {
+        await apiPost("reminders/update", { group_id: groupId, enabled: input.checked });
+        showToast(input.checked ? "提醒已启用" : "提醒已停用");
+        await loadOperations();
+      } catch (error) {
+        showToast(error.message || "更新提醒失败", "error");
+        await loadOperations();
+      }
+    });
+  });
+
+  els.reminderList.querySelectorAll("[data-reminder-time-form]").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const groupId = form.dataset.reminderTimeForm;
+      const remindTime = form.querySelector("input").value;
+      const button = form.querySelector("button[type='submit']");
+      setButtonBusy(button, true, "正在保存…", "保存时间");
+      try {
+        await apiPost("reminders/update", { group_id: groupId, remind_time: remindTime });
+        showToast("提醒时间已保存");
+        await loadOperations();
+      } catch (error) {
+        showToast(error.message || "保存提醒时间失败", "error");
+        setButtonBusy(button, false, "正在保存…", "保存时间");
+      }
+    });
+  });
+}
+
+function renderRemindersError() {
+  els.reminderCount.textContent = "读取失败";
+  els.reminderList.innerHTML = '<div class="empty error">群提醒暂时无法读取。</div>';
+}
+
+async function loadAudit({ reset = false } = {}) {
+  if (state.auditLoading) return;
+  state.auditLoading = true;
+  if (reset) {
+    state.auditOffset = 0;
+    state.auditLogs = [];
+    els.auditBody.innerHTML = '<tr><td colspan="6"><div class="empty">正在读取审计日志…</div></td></tr>';
+  }
+  try {
+    const result = await apiGet("audit-logs", {
+      action: state.auditAction,
+      operator: state.auditOperator,
+      limit: state.auditPageSize,
+      offset: state.auditOffset,
+    });
+    const incoming = Array.isArray(result.logs) ? result.logs : [];
+    state.auditLogs = reset ? incoming : state.auditLogs.concat(incoming);
+    state.auditTotal = Number(result.total || 0);
+    state.auditOffset = state.auditLogs.length;
+    state.loaded.audit = true;
+    renderAudit();
+  } catch (error) {
+    els.auditBody.innerHTML = `<tr><td colspan="6"><div class="empty error">审计日志读取失败：${escapeHtml(error.message)}</div></td></tr>`;
+    els.auditLoadMore.hidden = true;
+    throw error;
+  } finally {
+    state.auditLoading = false;
+  }
+}
+
+function renderAudit() {
+  els.auditEmpty.hidden = state.auditLogs.length > 0;
+  els.auditEmpty.textContent = state.auditLogs.length
+    ? ""
+    : state.auditAction || state.auditOperator
+      ? "没有匹配的审计日志，请调整筛选条件。"
+      : "还没有审计日志，管理端写操作将在这里留痕。";
+  els.auditLoadMore.hidden = state.auditLogs.length >= state.auditTotal;
+  els.auditBody.innerHTML = state.auditLogs.map((log) => `
+    <tr>
+      <td>${escapeHtml(formatDate(log.created_at))}</td>
+      <td>${escapeHtml(log.operator || "-")}</td>
+      <td><code>${escapeHtml(log.action || "-")}</code></td>
+      <td>${escapeHtml(log.target || "-")}</td>
+      <td class="audit-detail" title="${escapeHtml(log.detail)}">${escapeHtml(log.detail || "-")}</td>
+      <td>${escapeHtml(log.ip || "-")}</td>
+    </tr>
+  `).join("");
+}
+
 function renderData() {
   els.latestBackup.textContent = state.overview.latest_backup_at
     ? `最近备份：${formatDate(state.overview.latest_backup_at)}` : "最近备份：尚无备份记录";
@@ -646,7 +953,7 @@ function backupFileError(file) {
 }
 
 function switchView(name) {
-  const validNames = new Set(["ranking", "members", "safety", "data"]);
+  const validNames = new Set(["ranking", "members", "safety", "data", "operations", "audit"]);
   if (!validNames.has(name)) name = "ranking";
   document.querySelectorAll(".workspace-nav [data-view]").forEach((button) =>
     button.classList.toggle("active", button.dataset.view === name));
@@ -659,6 +966,16 @@ function switchView(name) {
   if (name === "members" && !state.loaded.members) {
     loadMembers({ reset: true }).catch((error) => {
       showGlobalError([errorMessage(error, "成员资料读取失败")]);
+    });
+  }
+  if (name === "operations" && !state.loaded.operations) {
+    loadOperations().catch((error) => {
+      showGlobalError([errorMessage(error, "运营数据读取失败")]);
+    });
+  }
+  if (name === "audit" && !state.loaded.audit) {
+    loadAudit({ reset: true }).catch((error) => {
+      showGlobalError([errorMessage(error, "审计日志读取失败")]);
     });
   }
 }
@@ -854,6 +1171,67 @@ function bindEvents() {
       showToast(error.message || "恢复失败", "error");
     } finally {
       els.importBtn.disabled = !els.importFile.files?.length;
+    }
+  });
+
+  els.seasonSettleBtn.addEventListener("click", async () => {
+    const groupId = els.seasonSettleGroup.value;
+    if (!groupId) {
+      showToast("请先选择要结算的群", "error");
+      return;
+    }
+    if (!await confirmAction("赛季结算", `确认要为群 ${groupId} 结算当前赛季奖励吗？前 10 名成员将获得金币奖励，同一赛季不会重复发放。`)) return;
+    setButtonBusy(els.seasonSettleBtn, true, "正在结算…", "结算当前赛季");
+    els.seasonSettleResult.textContent = "";
+    try {
+      const result = await apiPost("season-settle", { group_id: groupId });
+      if (result.already_settled) {
+        els.seasonSettleResult.textContent = `当前赛季（${result.season_key}）已经结算过，不会重复发放。`;
+        showToast("该赛季已结算过");
+      } else {
+        els.seasonSettleResult.textContent = `结算完成：${(result.payouts || []).length} 名成员获得奖励。`;
+        showToast("赛季奖励已结算");
+      }
+    } catch (error) {
+      els.seasonSettleResult.textContent = error.message || "赛季结算失败。";
+      showToast(els.seasonSettleResult.textContent, "error");
+    } finally {
+      setButtonBusy(els.seasonSettleBtn, false, "正在结算…", "结算当前赛季");
+    }
+  });
+
+  $("auditFilterForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    state.auditAction = $("auditAction").value.trim();
+    state.auditOperator = $("auditOperator").value.trim();
+    try {
+      await loadAudit({ reset: true });
+    } catch (error) {
+      showToast(error.message || "筛选审计日志失败", "error");
+    }
+  });
+
+  $("auditClearBtn").addEventListener("click", async () => {
+    $("auditAction").value = "";
+    $("auditOperator").value = "";
+    state.auditAction = "";
+    state.auditOperator = "";
+    try {
+      await loadAudit({ reset: true });
+      $("auditAction").focus();
+    } catch (error) {
+      showToast(error.message || "审计日志读取失败", "error");
+    }
+  });
+
+  els.auditLoadMore.addEventListener("click", async () => {
+    setButtonBusy(els.auditLoadMore, true, "正在加载…", "加载更多日志");
+    try {
+      await loadAudit();
+    } catch (error) {
+      showToast(error.message || "加载更多日志失败", "error");
+    } finally {
+      setButtonBusy(els.auditLoadMore, false, "正在加载…", "加载更多日志");
     }
   });
 }

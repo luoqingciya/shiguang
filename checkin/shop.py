@@ -6,7 +6,11 @@ from pathlib import Path
 
 from .._event import EventAdapter, Image, Plain
 from .card import CardBackground
-from .models import BOOST_PRODUCTS
+from .models import (
+    BOOST_PRODUCTS,
+    MAKEUP_CARD_PRICE,
+    MONTHLY_CARD_PRICE,
+)
 from .rules import boost_status_text
 from .store import CheckinStore
 from .themes import (
@@ -69,6 +73,24 @@ def build_checkin_shop_items(
             command="签到商店 刷新背景",
             name="",
             price=max(0, int(refresh_cost)),
+        )
+    )
+    items.append(
+        CheckinShopItem(
+            item_id="makeup_card",
+            category="items",
+            command="签到商店 购买补签卡",
+            name="补签卡（补签最近一天）",
+            price=MAKEUP_CARD_PRICE,
+        )
+    )
+    items.append(
+        CheckinShopItem(
+            item_id="monthly_card",
+            category="items",
+            command="签到商店 购买月卡",
+            name="月卡（30 天金币双倍）",
+            price=MONTHLY_CARD_PRICE,
         )
     )
     items.extend(
@@ -339,3 +361,146 @@ class CheckinShopMixin:
                 and background.mode == "pixiv_daily"
             ):
                 cleanup(background.image_path)
+
+    async def _handle_buy_makeup_card(self, event: EventAdapter):
+        if not self._cfg_bool("checkin_enabled", True):
+            yield event.plain_result("签到功能已关闭")
+            return
+        if self.checkin_store is None:
+            yield event.plain_result("签到数据尚未初始化，请稍后再试")
+            return
+        user_id = str(event.get_sender_id() or "")
+        if not user_id:
+            yield event.plain_result("无法识别用户 ID，暂时不能购买补签卡")
+            return
+        try:
+            purchase = await self.checkin_store.purchase_makeup_card(user_id=user_id)
+        except Exception as exc:
+            logger.warning(f"{LOG_PREFIX} 购买补签卡失败: error_type={type(exc).__name__}")
+            yield event.plain_result("购买失败，请稍后再试")
+            return
+        if not purchase.success:
+            yield event.plain_result(purchase.message)
+            return
+        yield event.plain_result(f"已购买补签卡，当前持有 {purchase.count} 张")
+
+    async def _handle_use_makeup_card(self, event: EventAdapter):
+        if not self._cfg_bool("checkin_enabled", True):
+            yield event.plain_result("签到功能已关闭")
+            return
+        if self.checkin_store is None:
+            yield event.plain_result("签到数据尚未初始化，请稍后再试")
+            return
+        user_id = str(event.get_sender_id() or "")
+        if not user_id:
+            yield event.plain_result("无法识别用户 ID，暂时不能使用补签卡")
+            return
+        try:
+            result = await self.checkin_store.use_makeup_card(user_id=user_id)
+        except Exception as exc:
+            logger.warning(f"{LOG_PREFIX} 使用补签卡失败: error_type={type(exc).__name__}")
+            yield event.plain_result("补签失败，请稍后再试")
+            return
+        message = result.message
+        if result.success:
+            message += f"\n当前补签卡: {result.profile.makeup_cards} 张"
+        yield event.plain_result(message)
+
+    async def _handle_buy_monthly_card(self, event: EventAdapter):
+        if not self._cfg_bool("checkin_enabled", True):
+            yield event.plain_result("签到功能已关闭")
+            return
+        if self.checkin_store is None:
+            yield event.plain_result("签到数据尚未初始化，请稍后再试")
+            return
+        user_id = str(event.get_sender_id() or "")
+        if not user_id:
+            yield event.plain_result("无法识别用户 ID，暂时不能购买月卡")
+            return
+        try:
+            purchase = await self.checkin_store.purchase_monthly_card(user_id=user_id)
+        except Exception as exc:
+            logger.warning(f"{LOG_PREFIX} 购买月卡失败: error_type={type(exc).__name__}")
+            yield event.plain_result("购买失败，请稍后再试")
+            return
+        yield event.plain_result(
+            "\n".join([purchase.message, f"当前金币: {purchase.profile.coins}"])
+        )
+
+    async def _handle_send_flower(self, event: EventAdapter, target: str):
+        if not self._cfg_bool("checkin_enabled", True):
+            yield event.plain_result("签到功能已关闭")
+            return
+        if self.checkin_store is None:
+            yield event.plain_result("签到数据尚未初始化，请稍后再试")
+            return
+        user_id = str(event.get_sender_id() or "")
+        if not user_id:
+            yield event.plain_result("无法识别用户 ID，暂时不能送花")
+            return
+        target_id = str(target or "").strip().lstrip("@")
+        if not target_id:
+            yield event.plain_result("用法: 签到商店 送花 <@用户>")
+            return
+        try:
+            result = await self.checkin_store.send_flower(user_id=user_id, target_id=target_id)
+        except Exception as exc:
+            logger.warning(f"{LOG_PREFIX} 送花失败: error_type={type(exc).__name__}")
+            yield event.plain_result("送花失败，请稍后再试")
+            return
+        yield event.plain_result(result.message)
+
+    async def _handle_transfer_coins(self, event: EventAdapter, target: str, amount: str):
+        if not self._cfg_bool("checkin_enabled", True):
+            yield event.plain_result("签到功能已关闭")
+            return
+        if self.checkin_store is None:
+            yield event.plain_result("签到数据尚未初始化，请稍后再试")
+            return
+        user_id = str(event.get_sender_id() or "")
+        if not user_id:
+            yield event.plain_result("无法识别用户 ID，暂时不能转账")
+            return
+        target_id = str(target or "").strip().lstrip("@")
+        if not target_id:
+            yield event.plain_result("用法: 签到商店 转账 <@用户> <金币数>")
+            return
+        amount_text = str(amount or "").strip()
+        if not amount_text.isdigit() or not 1 <= int(amount_text) <= 100_000:
+            yield event.plain_result("转账金额必须是 1 至 100000 之间的整数")
+            return
+        try:
+            result = await self.checkin_store.transfer_coins(
+                user_id=user_id,
+                target_id=target_id,
+                amount=int(amount_text),
+            )
+        except Exception as exc:
+            logger.warning(f"{LOG_PREFIX} 金币转账失败: error_type={type(exc).__name__}")
+            yield event.plain_result("转账失败，请稍后再试")
+            return
+        yield event.plain_result(result.message)
+
+    async def _handle_checkin_bond(self, event: EventAdapter, target: str):
+        if not self._cfg_bool("checkin_enabled", True):
+            yield event.plain_result("签到功能已关闭")
+            return
+        if self.checkin_store is None:
+            yield event.plain_result("签到数据尚未初始化，请稍后再试")
+            return
+        user_id = str(event.get_sender_id() or "")
+        if not user_id:
+            yield event.plain_result("无法识别用户 ID，暂时不能查询羁绊")
+            return
+        target_id = str(target or "").strip().lstrip("@")
+        if not target_id:
+            yield event.plain_result("用法: 签到商店 羁绊 <@用户>")
+            return
+        try:
+            mutual_days = await self.checkin_store.get_mutual_days(user_id, target_id)
+            result = await self.checkin_store.claim_bond_reward(user_id, target_id)
+        except Exception as exc:
+            logger.warning(f"{LOG_PREFIX} 查询羁绊失败: error_type={type(exc).__name__}")
+            yield event.plain_result("羁绊查询失败，请稍后再试")
+            return
+        yield event.plain_result(f"当前共同签到 {mutual_days} 天。\n{result}")

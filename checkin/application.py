@@ -9,8 +9,9 @@ from .._event import EventAdapter, Image, Plain
 from .birthday import birthday_matches, parse_qq_birthday
 from .card import CardBackground, build_checkin_card_data
 from .content import CheckinContent, resolve_checkin_content
+from .fortune import generate_fortune as _generate_checkin_fortune
 from .greeting import DEFAULT_CHECKIN_GREETING_PROMPT
-from .models import ACHIEVEMENTS, CheckinProfile, CheckinRecord
+from .models import ACHIEVEMENTS, LUCKY_BONUS_COINS, CheckinProfile, CheckinRecord
 from .quality import CHECKIN_JPEG_QUALITY, get_checkin_render_tier
 from .themes import get_checkin_theme
 
@@ -181,6 +182,36 @@ class CheckinApplicationMixin:
             )
             yield event.plain_result(self._format_checkin_plain_text(result))
             return
+
+        # A4 幸运日：群内首次签到且命中幸运尾号 → 额外金币 + 卡面标记
+        if not result.duplicate and group_id and record is not None:
+            try:
+                lucky_day = getattr(self.checkin_store, "is_lucky_day", None)
+                award = getattr(self.checkin_store, "award_lucky_bonus", None)
+                if (
+                    callable(lucky_day)
+                    and callable(award)
+                    and lucky_day(user_id, group_id, record.date_key)
+                ):
+                    lucky_note = f"🍀 幸运签！额外获得 {LUCKY_BONUS_COINS} 金币"
+                    new_coins = await award(
+                        user_id=user_id,
+                        date_key=record.date_key,
+                        coins=LUCKY_BONUS_COINS,
+                        note=lucky_note,
+                    )
+                    if new_coins:
+                        old_note = record.secondary_note
+                        record = replace(
+                            record,
+                            total_coins_after=record.total_coins_after + LUCKY_BONUS_COINS,
+                            secondary_note=(
+                                f"{old_note} · {lucky_note}" if old_note else lucky_note
+                            ),
+                        )
+                        result = replace(result, record=record)
+            except Exception as exc:
+                logger.debug(f"{LOG_PREFIX} 幸运日加成失败: error_type={type(exc).__name__}")
 
         cache = getattr(self, "checkin_cache", None)
         if cache is None:
@@ -517,6 +548,14 @@ class CheckinApplicationMixin:
             current_title=title,
             unlocked_achievements=tuple(str(ACHIEVEMENTS[item]["title"]) for item in unlocked_ids),
         )
+        # D2 签到运势：确定性文案追加到副标题（同一用户当天结果稳定）
+        fortune = _generate_checkin_fortune(profile, record.date_key)
+        if fortune:
+            note = content.secondary_note
+            content = replace(
+                content,
+                secondary_note=(f"{note} · {fortune}" if note else fortune),
+            )
         return content, title
 
     async def _generate_checkin_greeting(

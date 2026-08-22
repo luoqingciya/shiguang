@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import replace
 from datetime import date, datetime, timedelta
@@ -369,22 +370,28 @@ class CheckinCommandMixin:
             "连续": "streak",
             "累计": "total",
             "总榜": "total",
+            "赛季": "season",
+            "赛季榜": "season",
         }
         ranking_type = aliases.get(str(mode or "").strip())
         if ranking_type is None:
-            return "请使用：签到排行 今日、月榜、连签或累计"
-        result = await self.checkin_store.get_group_ranking(
-            group_id=group_id,
-            ranking_type=ranking_type,
-            limit=10,
-        )
+            return "请使用：签到排行 今日、月榜、连签、累计或赛季"
+        if ranking_type == "season":
+            result = await self.checkin_store.get_season_ranking(group_id=group_id, limit=10)
+        else:
+            result = await self.checkin_store.get_group_ranking(
+                group_id=group_id,
+                ranking_type=ranking_type,
+                limit=10,
+            )
         titles = {
             "today": "今日签到",
             "month": "本月签到",
             "streak": "连续签到",
             "total": "累计签到",
+            "season": "本赛季签到",
         }
-        units = {"month": "天", "streak": "天", "total": "天"}
+        units = {"month": "天", "streak": "天", "total": "天", "season": "天"}
         lines = [f"{group_name} · {titles[ranking_type]}排行"]
         entries = result["entries"]
         if not entries:
@@ -401,8 +408,11 @@ class CheckinCommandMixin:
                 value = f"{entry['value']}{units[ranking_type]}"
             lines.append(f"{entry['rank']:>2}. {entry['username']}  {value}")
         sender_id = str(event.get_sender_id() or "")
+        own_candidates = result.get("all_entries")
+        if own_candidates is None:
+            own_candidates = entries
         own = next(
-            (item for item in result["all_entries"] if item["user_id"] == sender_id),
+            (item for item in own_candidates if item["user_id"] == sender_id),
             None,
         )
         if own is None:
@@ -410,6 +420,249 @@ class CheckinCommandMixin:
         elif int(own["rank"]) > 10:
             lines.append(f"\n你的名次：第 {own['rank']} 名")
         return "\n".join(lines)
+
+    async def _handle_checkin_calendar(self, event: EventAdapter, value: str = "") -> str:
+        if self.checkin_store is None:
+            return "签到数据尚未初始化，请稍后再试"
+        user_id = str(event.get_sender_id() or "")
+        if not user_id:
+            return "无法识别用户 ID"
+        text = str(value or "").strip()
+        year: int | None = None
+        month: int | None = None
+        if text:
+            parts = text.split("-")
+            if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                year, month = int(parts[0]), int(parts[1])
+            else:
+                return "用法: 签到我的 日历 <YYYY-MM>"
+        if year is None or month is None:
+            try:
+                today = date.fromisoformat(self.checkin_store.today_key())
+            except ValueError:
+                return "用法: 签到我的 日历 <YYYY-MM>"
+            year, month = today.year, today.month
+        if not (1 <= month <= 12) or not (1 <= year <= 9999):
+            return "用法: 签到我的 日历 <YYYY-MM>"
+        try:
+            data = await self.checkin_store.get_month_calendar(
+                user_id=user_id, year=year, month=month
+            )
+        except Exception as exc:
+            logger.warning(f"{LOG_PREFIX} 读取打卡日历失败: error_type={type(exc).__name__}")
+            return "读取打卡日历失败，请稍后再试"
+        weekday_offset = date(year, month, 1).weekday()
+        cells: list[str] = ["   "] * weekday_offset
+        for day in data["days"]:
+            if day["is_today"]:
+                mark = "今"
+            elif day["signed"]:
+                mark = "✓"
+            else:
+                mark = "·"
+            cells.append(f"{int(day['day']):>2}{mark}")
+        rows = [" ".join(cells[i : i + 7]) for i in range(0, len(cells), 7)]
+        lines = [
+            f"{year}年{month}月 打卡日历",
+            f"已签 {data['signed_days']} 天 · 连续 {data['streak_days']} 天",
+            *rows,
+        ]
+        return "\n".join(lines)
+
+    async def _handle_checkin_archive(self, event: EventAdapter, value: str = "") -> str:
+        if self.checkin_store is None:
+            return "签到数据尚未初始化，请稍后再试"
+        user_id = str(event.get_sender_id() or "")
+        if not user_id:
+            return "无法识别用户 ID"
+        illust_id = str(value or "").strip()
+        if not illust_id:
+            return "用法: /收藏 <作品ID>"
+        title = illust_id
+        author = ""
+        source = ""
+        url = ""
+        thumb_url = ""
+        image_index = getattr(self, "image_index", None)
+        get_metadata = getattr(image_index, "get_illust_metadata", None)
+        if callable(get_metadata):
+            try:
+                metadata = await get_metadata(illust_id)
+            except Exception as exc:
+                logger.warning(f"{LOG_PREFIX} 读取作品元数据失败: error_type={type(exc).__name__}")
+                metadata = None
+            if metadata:
+                title = str(metadata.get("title") or illust_id)
+                author = str(metadata.get("author") or metadata.get("artist") or "")
+                source = str(metadata.get("source") or "")
+                url = str(metadata.get("url") or "")
+                thumb_url = str(metadata.get("thumb_url") or metadata.get("thumbnail") or "")
+        try:
+            added = await self.checkin_store.add_favorite(
+                user_id=user_id,
+                illust_id=illust_id,
+                title=title,
+                author=author,
+                source=source,
+                url=url,
+                thumb_url=thumb_url,
+            )
+        except Exception as exc:
+            logger.warning(f"{LOG_PREFIX} 收藏作品失败: error_type={type(exc).__name__}")
+            return "收藏失败，请稍后再试"
+        if added:
+            return f"已收藏作品 {illust_id}（{title}）"
+        return "该作品已在收藏列表中"
+
+    async def _handle_checkin_gallery(self, event: EventAdapter, value: str = "") -> str:
+        if self.checkin_store is None:
+            return "签到数据尚未初始化，请稍后再试"
+        user_id = str(event.get_sender_id() or "")
+        if not user_id:
+            return "无法识别用户 ID"
+        parts = str(value or "").strip().split()
+        author = parts[0] if parts else ""
+        page = 1
+        if len(parts) > 1:
+            if parts[1].isdigit():
+                page = max(1, int(parts[1]))
+            else:
+                return "用法: /画廊 <画师> <页码>"
+        limit = 20
+        offset = (page - 1) * limit
+        try:
+            result = await self.checkin_store.list_favorites(
+                user_id=user_id, author=author, limit=limit, offset=offset
+            )
+        except Exception as exc:
+            logger.warning(f"{LOG_PREFIX} 读取画廊失败: error_type={type(exc).__name__}")
+            return "读取画廊失败，请稍后再试"
+        items = result["items"]
+        lines = ["我的画廊", f"共 {result['total']} 件收藏"]
+        if not items:
+            lines.append("还没有收藏任何作品")
+        for idx, item in enumerate(items, 1):
+            created = str(item.created_at or "")[:10]
+            lines.append(
+                f"{idx}. {item.title}（{item.author}）ID:{item.illust_id} 收藏于 {created}"
+            )
+        lines.append(f"第 {page} 页")
+        lines.append("用法: /画廊 <画师> <页码>")
+        return "\n".join(lines)
+
+    async def _handle_checkin_subscription(
+        self, event: EventAdapter, action: str = "", value: str = ""
+    ) -> str:
+        if self.checkin_store is None:
+            return "签到数据尚未初始化，请稍后再试"
+        group_id, group_name, platform = self._event_group_context(event)
+        if not group_id:
+            return "订阅功能仅在群聊可用"
+        action = str(action or "").strip()
+        value = str(value or "").strip()
+        try:
+            if action in ("", "查看"):
+                subscription = await self.checkin_store.get_group_subscription(group_id)
+                if subscription is None:
+                    return "未订阅每日一图"
+                state = "已开启" if subscription.enabled else "已关闭"
+                return "\n".join(
+                    [
+                        "每日一图订阅",
+                        f"状态: {state}",
+                        f"标签: {subscription.tag or '未设置'}",
+                        f"推送时间: {subscription.push_time}",
+                        f"星期: {subscription.weekdays}",
+                    ]
+                )
+            if action in ("开启", "on"):
+                tag = value if value and value.lower() not in ("开启", "on") else ""
+                await self.checkin_store.upsert_group_subscription(
+                    group_id=group_id,
+                    group_name=group_name,
+                    platform=platform,
+                    enabled=True,
+                    tag=tag,
+                )
+                return "已开启每日一图订阅" + (f"，标签: {tag}" if tag else "")
+            if action in ("关闭", "off"):
+                await self.checkin_store.set_subscription_enabled(group_id, False)
+                return "已关闭每日一图订阅"
+            if action in ("标签", "tag"):
+                if not value:
+                    return "用法: 签到订阅 标签 <标签>"
+                await self.checkin_store.set_subscription_tag(group_id, value)
+                return f"订阅标签已设置为: {value}"
+            if action in ("时间", "time"):
+                if not re.fullmatch(r"([01]?\d|2[0-3]):[0-5]\d", value):
+                    return "用法: 签到订阅 时间 <HH:MM>\n示例: 签到订阅 时间 09:30"
+                await self.checkin_store.set_subscription_push_time(group_id, value)
+                return f"订阅推送时间已设置为: {value}"
+            return "用法: 签到订阅 查看|开启|关闭|标签 <标签>|时间 <HH:MM>"
+        except Exception as exc:
+            logger.warning(
+                f"{LOG_PREFIX} 每日一图订阅操作失败: action={action} error_type={type(exc).__name__}"
+            )
+            return "订阅操作失败，请稍后再试"
+
+    async def _handle_checkin_reminder(
+        self, event: EventAdapter, action: str = "", value: str = ""
+    ) -> str:
+        if self.checkin_store is None:
+            return "签到数据尚未初始化，请稍后再试"
+        group_id, group_name, platform = self._event_group_context(event)
+        if not group_id:
+            return "提醒功能仅在群聊可用"
+        action = str(action or "").strip()
+        value = str(value or "").strip()
+        try:
+            if action in ("", "查看"):
+                reminder = await self.checkin_store.get_group_reminder(group_id)
+                if reminder is None:
+                    return "未设置签到提醒"
+                state = "已开启" if reminder.enabled else "已关闭"
+                return "\n".join(
+                    [
+                        "签到提醒",
+                        f"状态: {state}",
+                        f"提醒时间: {reminder.remind_time}",
+                    ]
+                )
+            if action in ("开启", "on"):
+                await self.checkin_store.upsert_group_reminder(
+                    group_id=group_id,
+                    group_name=group_name,
+                    platform=platform,
+                    enabled=True,
+                    remind_time="21:00",
+                )
+                return "已开启签到提醒（21:00）"
+            if action in ("关闭", "off"):
+                await self.checkin_store.upsert_group_reminder(
+                    group_id=group_id,
+                    group_name=group_name,
+                    platform=platform,
+                    enabled=False,
+                    remind_time="21:00",
+                )
+                return "已关闭签到提醒"
+            if action in ("时间", "time"):
+                if not re.fullmatch(r"([01]?\d|2[0-3]):[0-5]\d", value):
+                    return "用法: 签到提醒 时间 <HH:MM>\n示例: 签到提醒 时间 21:30"
+                await self.checkin_store.upsert_group_reminder(
+                    group_id=group_id,
+                    group_name=group_name,
+                    platform=platform,
+                    enabled=True,
+                    remind_time=value,
+                )
+                return f"签到提醒时间已设置为: {value}"
+            return "用法: 签到提醒 查看|开启|关闭|时间 <HH:MM>"
+        except Exception as exc:
+            logger.warning(
+                f"{LOG_PREFIX} 签到提醒操作失败: action={action} error_type={type(exc).__name__}"
+            )
+            return "提醒操作失败，请稍后再试"
 
     async def _handle_checkin_status(self, event: EventAdapter):
         if not self._cfg_bool("checkin_enabled", True):
@@ -558,6 +811,15 @@ class CheckinCommandMixin:
             if not event_type.isdigit():
                 return "用法: 签到管理 事件删除 <ID>"
             deleted = await self.checkin_store.delete_global_event(int(event_type))
+            if deleted:
+                try:
+                    await self.checkin_store.record_audit(
+                        operator=str(event.get_sender_id() or ""),
+                        action="checkin.event_delete",
+                        target=str(int(event_type)),
+                    )
+                except Exception:
+                    pass
             return "事件已删除" if deleted else "未找到该事件"
         if action != "添加":
             return "用法: 签到管理 事件添加 <年度|单次> <日期> <名称>"
@@ -576,6 +838,15 @@ class CheckinCommandMixin:
             )
         except ValueError as exc:
             return str(exc)
+        try:
+            await self.checkin_store.record_audit(
+                operator=str(event.get_sender_id() or ""),
+                action="checkin.event_add",
+                target=str(item.event_id),
+                detail=f"{item.date_value} {item.name}",
+            )
+        except Exception:
+            pass
         return f"已添加事件 #{item.event_id}: {item.date_value} {item.name}"
 
     @staticmethod

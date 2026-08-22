@@ -126,6 +126,54 @@ class PluginWebApi:
             ),
             ("checkin-export", self.checkin_export, ["GET"], "Export check-in backup"),
             ("checkin-import", self.checkin_import, ["POST"], "Import check-in backup"),
+            (
+                "checkin-stats",
+                self.checkin_stats,
+                ["GET"],
+                "Get check-in global statistics",
+            ),
+            (
+                "checkin-season",
+                self.checkin_season,
+                ["GET"],
+                "Get group season ranking",
+            ),
+            (
+                "season-settle",
+                self.season_settle,
+                ["POST"],
+                "Settle group season rewards",
+            ),
+            (
+                "subscriptions",
+                self.subscriptions,
+                ["GET"],
+                "List daily push group subscriptions",
+            ),
+            (
+                "subscriptions/update",
+                self.subscription_update,
+                ["POST"],
+                "Update daily push group subscription",
+            ),
+            (
+                "reminders",
+                self.reminders,
+                ["GET"],
+                "List group check-in reminders",
+            ),
+            (
+                "reminders/update",
+                self.reminder_update,
+                ["POST"],
+                "Update group check-in reminder",
+            ),
+            (
+                "audit-logs",
+                self.audit_logs,
+                ["GET"],
+                "List management operation audit logs",
+            ),
             ("config", self.config, ["GET"], "Get management center configuration"),
         )
         for path, handler, methods, description in routes:
@@ -283,6 +331,177 @@ class PluginWebApi:
             return jsonify({"success": False, "error": str(exc)}), 400
         except Exception as exc:
             return self.internal_error("调整签到成员数值", exc)
+
+    async def checkin_stats(self):
+        if self.plugin.checkin_store is None:
+            return self._unavailable("签到数据尚未初始化")
+        try:
+            stats = await self.plugin.checkin_store.get_checkin_stats()
+            return jsonify({"success": True, **stats})
+        except Exception as exc:
+            return self.internal_error("读取签到统计", exc)
+
+    async def checkin_season(self):
+        if self.plugin.checkin_store is None:
+            return self._unavailable("签到数据尚未初始化")
+        try:
+            limit = self._parse_int(request.args.get("limit", "10"), 1, 100)
+            group_id = await self._require_known_group(request.args.get("group_id", ""))
+            result = await self.plugin.checkin_store.get_season_ranking(
+                group_id=group_id, limit=limit
+            )
+            return jsonify({"success": True, **result})
+        except ValueError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+        except Exception as exc:
+            return self.internal_error("读取赛季排行", exc)
+
+    async def season_settle(self):
+        if self.plugin.checkin_store is None:
+            return self._unavailable("签到数据尚未初始化")
+        payload = await self._request_json_object()
+        if payload is None:
+            return jsonify({"success": False, "error": "请求内容必须是对象"}), 400
+        group_id = str(payload.get("group_id") or "").strip()
+        if not group_id:
+            return jsonify({"success": False, "error": "缺少 group_id"}), 400
+        try:
+            result = await self.plugin.checkin_store.settle_season(group_id)
+            self._audit("season-settle", f"group_id={group_id}")
+            return jsonify({"success": True, **result})
+        except Exception as exc:
+            return self.internal_error("赛季结算", exc)
+
+    async def subscriptions(self):
+        if self.plugin.checkin_store is None:
+            return self._unavailable("签到数据尚未初始化")
+        try:
+            subscriptions = await self.plugin.checkin_store.list_group_subscriptions()
+            return jsonify({"success": True, "subscriptions": subscriptions})
+        except Exception as exc:
+            return self.internal_error("读取群订阅", exc)
+
+    async def subscription_update(self):
+        if self.plugin.checkin_store is None:
+            return self._unavailable("签到数据尚未初始化")
+        payload = await self._request_json_object()
+        if payload is None:
+            return jsonify({"success": False, "error": "请求内容必须是对象"}), 400
+        group_id = str(payload.get("group_id") or "").strip()
+        if not group_id:
+            return jsonify({"success": False, "error": "缺少 group_id"}), 400
+        try:
+            store = self.plugin.checkin_store
+            changes: list[str] = []
+            subscription = None
+            if "enabled" in payload:
+                subscription = await store.set_subscription_enabled(
+                    group_id=group_id, enabled=bool(payload["enabled"])
+                )
+                changes.append(f"enabled={1 if payload['enabled'] else 0}")
+            if "tag" in payload:
+                subscription = await store.set_subscription_tag(
+                    group_id=group_id, tag=str(payload.get("tag") or "")
+                )
+                changes.append(f"tag={str(payload.get('tag') or '')!r}")
+            if "push_time" in payload:
+                subscription = await store.set_subscription_push_time(
+                    group_id=group_id, push_time=str(payload.get("push_time") or "")
+                )
+                changes.append(f"push_time={str(payload.get('push_time') or '')!r}")
+            if subscription is None and not changes:
+                subscription = await store.upsert_group_subscription(group_id=group_id)
+            if subscription is None:
+                return jsonify({"success": False, "error": "订阅不存在"}), 404
+            self._audit("subscriptions/update", f"group_id={group_id} {' '.join(changes)}")
+            return jsonify({"success": True, "subscription": subscription})
+        except ValueError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+        except Exception as exc:
+            return self.internal_error("更新群订阅", exc)
+
+    async def reminders(self):
+        if self.plugin.checkin_store is None:
+            return self._unavailable("签到数据尚未初始化")
+        try:
+            reminders = await self.plugin.checkin_store.list_group_reminders()
+            return jsonify({"success": True, "reminders": reminders})
+        except Exception as exc:
+            return self.internal_error("读取群提醒", exc)
+
+    async def reminder_update(self):
+        if self.plugin.checkin_store is None:
+            return self._unavailable("签到数据尚未初始化")
+        payload = await self._request_json_object()
+        if payload is None:
+            return jsonify({"success": False, "error": "请求内容必须是对象"}), 400
+        group_id = str(payload.get("group_id") or "").strip()
+        if not group_id:
+            return jsonify({"success": False, "error": "缺少 group_id"}), 400
+        try:
+            store = self.plugin.checkin_store
+            enabled = payload.get("enabled")
+            remind_time = payload.get("remind_time")
+            changes: list[str] = []
+            if enabled is None and remind_time is None:
+                reminder = await store.upsert_group_reminder(group_id=group_id)
+            elif enabled is not None and remind_time is None:
+                existing = await store.get_group_reminder(group_id)
+                if existing is not None:
+                    reminder = await store.upsert_group_reminder(
+                        group_id=group_id,
+                        enabled=bool(enabled),
+                        remind_time=existing.remind_time,
+                    )
+                else:
+                    reminder = await store.upsert_group_reminder(
+                        group_id=group_id, enabled=bool(enabled)
+                    )
+            elif enabled is None and remind_time is not None:
+                existing = await store.get_group_reminder(group_id)
+                reminder = await store.upsert_group_reminder(
+                    group_id=group_id,
+                    enabled=existing.enabled if existing is not None else True,
+                    remind_time=str(remind_time),
+                )
+            else:
+                reminder = await store.upsert_group_reminder(
+                    group_id=group_id, enabled=bool(enabled), remind_time=str(remind_time)
+                )
+            if enabled is not None:
+                changes.append(f"enabled={1 if enabled else 0}")
+            if remind_time is not None:
+                changes.append(f"remind_time={str(remind_time)!r}")
+            self._audit("reminders/update", f"group_id={group_id} {' '.join(changes)}")
+            return jsonify({"success": True, "reminder": reminder})
+        except ValueError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+        except Exception as exc:
+            return self.internal_error("更新群提醒", exc)
+
+    async def audit_logs(self):
+        if self.plugin.checkin_store is None:
+            return self._unavailable("签到数据尚未初始化")
+        try:
+            limit = self._parse_int(request.args.get("limit", "50"), 1, 200)
+            offset = self._parse_int(request.args.get("offset", "0"), 0, 1_000_000)
+            action = str(request.args.get("action", "") or "").strip()
+            operator = str(request.args.get("operator", "") or "").strip()
+            result = await self.plugin.checkin_store.list_audit(
+                action=action, operator=operator, limit=limit, offset=offset
+            )
+            return jsonify(
+                {
+                    "success": True,
+                    "action": action,
+                    "operator": operator,
+                    **result,
+                }
+            )
+        except ValueError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+        except Exception as exc:
+            return self.internal_error("读取审计日志", exc)
 
     async def content_safety(self):
         if self.plugin.image_index is None:

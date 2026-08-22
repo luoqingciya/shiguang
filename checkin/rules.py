@@ -61,6 +61,12 @@ def is_boost_active(profile: CheckinProfile, date_key: str | None = None) -> boo
     return bool(start and until and start <= today <= until)
 
 
+def is_monthly_card_active(profile: CheckinProfile, date_key: str | None = None) -> bool:
+    today = date.fromisoformat(date_key or _today_key())
+    until = parse_date(getattr(profile, "monthly_card_until", ""))
+    return bool(until and today <= until)
+
+
 def boost_remaining_days(profile: CheckinProfile, date_key: str | None = None) -> int:
     today = date.fromisoformat(date_key or _today_key())
     until = parse_date(profile.boost_until_date)

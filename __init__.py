@@ -10,10 +10,12 @@
     /p [标签] [数量]          搜索并发送图片
     /签到                      每日签到
     /签到帮助                  签到指令帮助
-    /签到我的 <状态|生日|成就|称号>   个人签到资料
-    /签到排行 <今日|月榜|连签|累计>    群排行
-    /签到商店 <查看|加持|主题|刷新背景> 签到商店
-    /签到管理 <预览|导出|事件>       管理员维护
+    /签到我的 <状态|生日|成就|称号|日历>   个人签到资料
+    /签到排行 <今日|月榜|连签|累计|赛季>    群排行
+    /签到商店 <查看|加持|主题|刷新背景|购买补签卡|使用补签卡|购买月卡|送花|转账|羁绊>  签到商店
+    /签到管理 <预览|导出|事件|订阅|提醒>    管理员维护
+    /收藏 <作品ID>             收藏插画
+    /画廊 [画师] [页码]        查看已收藏插画
 """
 
 from __future__ import annotations
@@ -25,8 +27,10 @@ import logging
 import re
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -40,7 +44,8 @@ from qingci_plugin_sdk import (
 )
 
 from ._event import EventAdapter, result_to_reply
-from .checkin import CheckinStore, UnversionedCheckinDatabaseError
+from .checkin import SHANGHAI_TZ, CheckinStore, UnversionedCheckinDatabaseError
+from .checkin import llm_tools as _checkin_llm_tools  # noqa: F401 — 模块级 @llm_tool 需在加载期收集
 from .checkin.application import CheckinApplicationMixin
 from .checkin.artwork import CheckinArtworkMixin
 from .checkin.background_service import CheckinBackgroundService
@@ -71,7 +76,7 @@ def _read_plugin_version() -> str:
         version = meta.get("version") if isinstance(meta, dict) else None
     except (OSError, ValueError):
         version = None
-    return str(version) if version else "1.0.3"
+    return str(version) if version else "1.1.0"
 
 
 PLUGIN_VERSION = _read_plugin_version()
@@ -362,6 +367,7 @@ class ShiguangPlugin(
         self._register_web_center()
         await self._initialize()
         self.checkin_background_service = CheckinBackgroundService(self)
+        self._register_scheduled_jobs()
 
     async def on_config_update(self) -> None:
         """M18：配置热更新（CE 保存插件配置后调用；on_load 亦复用此路径）。
@@ -439,6 +445,7 @@ class ShiguangPlugin(
                     "成就": self.cmd_checkin_achievements,
                     "称号查看": self.cmd_checkin_titles,
                     "称号佩戴": self.cmd_select_checkin_title,
+                    "日历": self.cmd_checkin_calendar,
                 },
             )(self._noop)
         )
@@ -451,6 +458,7 @@ class ShiguangPlugin(
                     "月榜": self.cmd_checkin_ranking_month,
                     "连签": self.cmd_checkin_ranking_streak,
                     "累计": self.cmd_checkin_ranking_total,
+                    "赛季": self.cmd_checkin_season,
                 },
             )(self._noop)
         )
@@ -466,6 +474,12 @@ class ShiguangPlugin(
                     "主题购买": self.cmd_buy_checkin_theme,
                     "主题切换": self.cmd_select_checkin_theme,
                     "刷新背景": self.cmd_refresh_checkin_background,
+                    "购买补签卡": self.cmd_buy_makeup_card,
+                    "使用补签卡": self.cmd_use_makeup_card,
+                    "购买月卡": self.cmd_buy_monthly_card,
+                    "送花": self.cmd_send_flower,
+                    "转账": self.cmd_transfer_coins,
+                    "羁绊": self.cmd_checkin_bond,
                 },
             )(self._noop)
         )
@@ -480,8 +494,15 @@ class ShiguangPlugin(
                     "事件查看": self.cmd_checkin_event_list,
                     "事件添加": self.cmd_checkin_event_add,
                     "事件删除": self.cmd_checkin_event_delete,
+                    "订阅": self.cmd_checkin_subscription,
+                    "提醒": self.cmd_checkin_reminder,
                 },
             )(self._noop)
+        )
+        # 收藏 / 画廊（C1 用户收藏与个人画廊）
+        self.matchers.append(on_command("收藏", description="收藏插画")(self.cmd_checkin_archive))
+        self.matchers.append(
+            on_command("画廊", description="查看已收藏插画")(self.cmd_checkin_gallery)
         )
         # 纯文本签到触发
         self.matchers.append(
@@ -527,6 +548,7 @@ class ShiguangPlugin(
         logger.info(
             f"{LOG_PREFIX} 签到数据库{database_action}: version={PLUGIN_VERSION}, path={db_path}"
         )
+        _checkin_llm_tools.bind_llm_tools_store(self.checkin_store)
         self.checkin_cache = CheckinCardCache(data_dir / "checkin_card_cache")
         await asyncio.to_thread(self.checkin_cache.cleanup_expired, force=True)
         self.holiday_calendar = HolidayCalendar(data_dir, plugin_version=PLUGIN_VERSION)
@@ -608,6 +630,146 @@ class ShiguangPlugin(
                 f"{LOG_PREFIX} 节假日数据更新失败，继续使用本地规则: "
                 f"error_type={type(exc).__name__}"
             )
+
+    # ============ 定时任务（C2 每日一图 / D5 提醒 / A2 赛季结算） ============
+
+    def _register_scheduled_jobs(self) -> None:
+        bot = getattr(self, "bot", None)
+        scheduler = getattr(bot, "scheduler", None) if bot is not None else None
+        if scheduler is None:
+            logger.info(f"{LOG_PREFIX} 定时调度器不可用，跳过定时任务注册")
+            return
+        try:
+            scheduler.add_job(
+                self._scheduled_daily_push, "cron", "daily_push", owner=self.name, minute="*/5"
+            )
+            scheduler.add_job(
+                self._scheduled_checkin_reminder,
+                "cron",
+                "checkin_reminder",
+                owner=self.name,
+                minute="*/5",
+            )
+            scheduler.add_job(
+                self._scheduled_season_settle,
+                "cron",
+                "season_settle",
+                owner=self.name,
+                minute="5",
+                hour="0",
+            )
+            logger.info(
+                f"{LOG_PREFIX} 定时任务已注册: daily_push / checkin_reminder / season_settle"
+            )
+        except Exception as exc:
+            logger.warning(f"{LOG_PREFIX} 定时任务注册失败: error_type={type(exc).__name__}")
+
+    def _bot_self_id(self) -> str:
+        bot = getattr(self, "bot", None)
+        if bot is None:
+            return ""
+        return str(getattr(bot, "self_id", "") or "")
+
+    def _push_event(self, group_id: str, platform: str = "") -> EventAdapter:
+        """构造无事件上下文的推送适配器（定时任务用），复用发图/发送链路。"""
+        ctx = SimpleNamespace(
+            user_id="",
+            group_id=str(group_id or ""),
+            platform=str(platform or ""),
+            self_id=self._bot_self_id(),
+            sender_name="",
+        )
+        return EventAdapter(ctx, self)
+
+    async def _scheduled_daily_push(self) -> None:
+        """C2 每日一图：每 5 分钟扫描，向 push_time 命中的已订阅群推一张图。"""
+        store = self.checkin_store
+        if store is None:
+            return
+        now = datetime.now(SHANGHAI_TZ)
+        try:
+            subscriptions = await store.get_subscriptions_for_push(
+                weekday=now.isoweekday(),
+                current_time=now.strftime("%H:%M"),
+            )
+        except Exception as exc:
+            logger.warning(f"{LOG_PREFIX} 每日一图订阅查询失败: error_type={type(exc).__name__}")
+            return
+        for subscription in subscriptions:
+            try:
+                await self._daily_push_to_group(subscription)
+            except Exception as exc:
+                logger.warning(
+                    f"{LOG_PREFIX} 每日一图推送失败: "
+                    f"group_id={subscription.group_id} error_type={type(exc).__name__}"
+                )
+
+    async def _daily_push_to_group(self, subscription) -> None:
+        event = self._push_event(subscription.group_id, subscription.platform)
+        self._last_request.pop("", None)  # 定时推送不参与空 user_id 频率限制
+        tag = str(subscription.tag or "")
+        try:
+            async for item in self._handle_search(event, tag=tag, count_str="1"):
+                if item is not None:
+                    await event.send(item)
+        finally:
+            self._last_request.pop("", None)
+
+    async def _scheduled_checkin_reminder(self) -> None:
+        """D5 定时签到提醒：每 5 分钟扫描，向 remind_time 命中的已开启群发提醒。"""
+        store = self.checkin_store
+        if store is None:
+            return
+        current_time = datetime.now(SHANGHAI_TZ).strftime("%H:%M")
+        try:
+            reminders = await store.list_group_reminders(enabled_only=True)
+        except Exception as exc:
+            logger.warning(f"{LOG_PREFIX} 签到提醒列表查询失败: error_type={type(exc).__name__}")
+            return
+        for reminder in reminders:
+            if str(reminder.remind_time) != current_time:
+                continue
+            try:
+                event = self._push_event(reminder.group_id, reminder.platform)
+                await event.send(
+                    event.plain_result(
+                        "⏰ 签到提醒：今天还未签到的小伙伴记得来打卡哦～"
+                        "（错过了可用「签到商店 购买补签卡」补签）"
+                    )
+                )
+            except Exception as exc:
+                logger.warning(
+                    f"{LOG_PREFIX} 签到提醒发送失败: "
+                    f"group_id={reminder.group_id} error_type={type(exc).__name__}"
+                )
+
+    async def _scheduled_season_settle(self) -> None:
+        """A2 赛季结算：每日凌晨结算所有有记录群的赛季奖励（台账防重复）。"""
+        store = self.checkin_store
+        if store is None:
+            return
+        try:
+            groups = await store.list_checkin_groups()
+        except Exception as exc:
+            logger.warning(f"{LOG_PREFIX} 赛季结算群列表查询失败: error_type={type(exc).__name__}")
+            return
+        for group in groups:
+            group_id = str(group.get("group_id") or "")
+            if not group_id:
+                continue
+            try:
+                result = await store.settle_season(group_id)
+                if not result.get("already_settled") and result.get("payouts"):
+                    logger.info(
+                        f"{LOG_PREFIX} 赛季结算完成: group_id={group_id} "
+                        f"season_key={result.get('season_key')} "
+                        f"payouts={len(result['payouts'])}"
+                    )
+            except Exception as exc:
+                logger.warning(
+                    f"{LOG_PREFIX} 赛季结算失败: group_id={group_id} "
+                    f"error_type={type(exc).__name__}"
+                )
 
     def _init_client(self) -> None:
         # M10：幂等——已有可用 Pixiv 客户端则复用（旧实现无条件重建，导致 aiohttp session 连接泄漏）
@@ -752,6 +914,68 @@ class ShiguangPlugin(
     async def cmd_refresh_checkin_background(self, ctx: MatcherContext):
         event = self._adapt(ctx)
         return await self._collect(self._handle_refresh_checkin_background(event))
+
+    # 签到排行 赛季（A2）
+    async def cmd_checkin_season(self, ctx: MatcherContext):
+        event = self._adapt(ctx)
+        return await self._handle_checkin_ranking(event, "赛季")
+
+    # 签到我的 日历（A3）
+    async def cmd_checkin_calendar(self, ctx: MatcherContext):
+        event = self._adapt(ctx)
+        return await self._handle_checkin_calendar(event, str(ctx.args or ""))
+
+    # 签到商店 道具与社交（A1 / B1）
+    async def cmd_buy_makeup_card(self, ctx: MatcherContext):
+        event = self._adapt(ctx)
+        return await self._collect(self._handle_buy_makeup_card(event))
+
+    async def cmd_use_makeup_card(self, ctx: MatcherContext):
+        event = self._adapt(ctx)
+        return await self._collect(self._handle_use_makeup_card(event))
+
+    async def cmd_buy_monthly_card(self, ctx: MatcherContext):
+        event = self._adapt(ctx)
+        return await self._collect(self._handle_buy_monthly_card(event))
+
+    async def cmd_send_flower(self, ctx: MatcherContext):
+        event = self._adapt(ctx)
+        return await self._collect(self._handle_send_flower(event, str(ctx.args or "")))
+
+    async def cmd_transfer_coins(self, ctx: MatcherContext):
+        event = self._adapt(ctx)
+        parts = str(ctx.args or "").strip().split(maxsplit=1)
+        target = parts[0] if parts else ""
+        amount = parts[1] if len(parts) > 1 else ""
+        return await self._collect(self._handle_transfer_coins(event, target, amount))
+
+    async def cmd_checkin_bond(self, ctx: MatcherContext):
+        event = self._adapt(ctx)
+        return await self._collect(self._handle_checkin_bond(event, str(ctx.args or "")))
+
+    # 签到管理 订阅 / 提醒（C2 / D5）
+    async def cmd_checkin_subscription(self, ctx: MatcherContext):
+        event = self._adapt(ctx)
+        parts = str(ctx.args or "").strip().split(maxsplit=1)
+        action = parts[0] if parts else ""
+        value = parts[1] if len(parts) > 1 else ""
+        return await self._handle_checkin_subscription(event, action, value)
+
+    async def cmd_checkin_reminder(self, ctx: MatcherContext):
+        event = self._adapt(ctx)
+        parts = str(ctx.args or "").strip().split(maxsplit=1)
+        action = parts[0] if parts else ""
+        value = parts[1] if len(parts) > 1 else ""
+        return await self._handle_checkin_reminder(event, action, value)
+
+    # 收藏 / 画廊（C1）
+    async def cmd_checkin_archive(self, ctx: MatcherContext):
+        event = self._adapt(ctx)
+        return await self._handle_checkin_archive(event, str(ctx.args or ""))
+
+    async def cmd_checkin_gallery(self, ctx: MatcherContext):
+        event = self._adapt(ctx)
+        return await self._handle_checkin_gallery(event, str(ctx.args or ""))
 
     # 签到管理（管理员）
     async def cmd_checkin_preview(self, ctx: MatcherContext):

@@ -36,6 +36,8 @@
         <button data-view="members" type="button">成员数值</button>
         <button data-view="safety" type="button">内容安全</button>
         <button data-view="data" type="button">数据管理</button>
+        <button data-view="operations" type="button">运营</button>
+        <button data-view="audit" type="button">审计</button>
         <button id="refreshBtn" class="refresh" type="button">刷新数据</button>
       </nav>
 
@@ -62,6 +64,7 @@
                   <button data-rank="month" type="button">月度</button>
                   <button data-rank="streak" type="button">连签</button>
                   <button data-rank="total" type="button">累计</button>
+                  <button data-rank="season" type="button">赛季</button>
                 </div>
               </div>
 
@@ -217,6 +220,96 @@
               <small id="importResult" aria-live="polite">尚未选择任何文件 (最大支持 5 MiB)</small>
             </section>
           </div>
+        </section>
+
+        <!-- 运营模块 -->
+        <section id="operationsView" class="workspace" aria-labelledby="operationsTitle">
+          <div class="section-heading wide">
+            <p>OPERATIONS</p>
+            <h2 id="operationsTitle">运营概览</h2>
+            <span>查看签到统计，管理每日一图群订阅与群签到提醒，并按群结算赛季奖励。</span>
+          </div>
+
+          <div id="statsCards" class="stats-grid" aria-live="polite"></div>
+
+          <section class="panel subscription-panel">
+            <div class="panel-title">
+              <div>
+                <p>DAILY PUSH SUBSCRIPTIONS</p>
+                <h3>每日一图群订阅</h3>
+              </div>
+              <span id="subscriptionCount" class="count" aria-live="polite"></span>
+            </div>
+            <div id="subscriptionList" class="subscription-list">
+              <div class="empty">打开本模块后将加载群订阅</div>
+            </div>
+          </section>
+
+          <section class="panel reminder-panel">
+            <div class="panel-title">
+              <div>
+                <p>GROUP REMINDERS</p>
+                <h3>群签到提醒</h3>
+              </div>
+              <span id="reminderCount" class="count" aria-live="polite"></span>
+            </div>
+            <div id="reminderList" class="subscription-list">
+              <div class="empty">打开本模块后将加载群提醒</div>
+            </div>
+          </section>
+
+          <section class="panel season-panel">
+            <div class="panel-title">
+              <div>
+                <p>SEASON SETTLEMENT</p>
+                <h3>赛季结算</h3>
+              </div>
+            </div>
+            <div class="season-settle-row">
+              <label for="seasonSettleGroup" class="sr-only">选择结算群</label>
+              <select id="seasonSettleGroup" aria-label="选择要结算赛季的群"></select>
+              <button id="seasonSettleBtn" type="button">结算当前赛季</button>
+              <p id="seasonSettleResult" class="form-error" aria-live="polite"></p>
+            </div>
+          </section>
+        </section>
+
+        <!-- 审计模块 -->
+        <section id="auditView" class="workspace" aria-labelledby="auditTitle">
+          <div class="section-heading wide">
+            <p>AUDIT TRAIL</p>
+            <h2 id="auditTitle">操作审计日志</h2>
+            <span>追踪管理端关键写操作（成员调整、黑名单、备份导入、订阅与赛季结算）。</span>
+          </div>
+
+          <form id="auditFilterForm" class="audit-filter-form" role="search">
+            <label for="auditAction" class="sr-only">按操作类型过滤</label>
+            <input id="auditAction" name="audit_action" type="text" maxlength="64" autocomplete="off" spellcheck="false" placeholder="操作（action）筛选…" />
+            <label for="auditOperator" class="sr-only">按操作者过滤</label>
+            <input id="auditOperator" name="audit_operator" type="text" maxlength="64" autocomplete="off" spellcheck="false" placeholder="操作者（operator）筛选…" />
+            <button type="submit">筛选</button>
+            <button id="auditClearBtn" class="secondary" type="button">清除</button>
+          </form>
+
+          <div class="audit-table-wrap">
+            <table class="audit-table">
+              <thead>
+                <tr>
+                  <th>时间</th>
+                  <th>操作者</th>
+                  <th>操作</th>
+                  <th>目标</th>
+                  <th>详情</th>
+                  <th>IP</th>
+                </tr>
+              </thead>
+              <tbody id="auditBody">
+                <tr><td colspan="6"><div class="empty">打开本模块后将加载审计日志</div></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div id="auditEmpty" class="empty" hidden></div>
+          <button id="auditLoadMore" class="member-load-more" type="button" hidden>加载更多日志</button>
         </section>
       </main>
     </div>

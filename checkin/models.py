@@ -27,6 +27,35 @@ BOOST_PRODUCTS: dict[int, int] = {
     7: 1000,
 }
 
+# A1 补签卡 / 月卡
+MAKEUP_CARD_PRICE = 80  # 补签卡单价（金币）
+MAKEUP_CARD_GRANT_COINS = 30  # 补签当天补发的金币
+MONTHLY_CARD_PRICE = 300  # 月卡单价（金币）
+MONTHLY_CARD_DAYS = 30  # 月卡有效天数
+MONTHLY_CARD_COIN_MULTIPLIER = 2  # 月卡每日双倍金币
+MONTHLY_CARD_THEME_ID = "blue"  # 月卡专属卡面徽标主题
+
+# B1 送花 / 金币转账
+GIFT_MAX_AFFECTION = 1.0  # 单次送花最大好感
+GIFT_AFFECTION_STEP = 0.25  # 每次送花增加的好感
+GIFT_COST = 20  # 送花消耗金币
+GIFT_MAX_PER_DAY = 5  # 每日送花次数上限
+BOND_REWARD_COINS = 100  # 羁绊称号解锁奖励
+BOND_REWARD_TITLE = "羁绊"  # 互签解锁称号
+
+# A2 赛季
+SEASON_WINDOW_DAYS = 30  # 赛季窗口天数（固定滚动窗口）
+SEASON_REWARD_TOP1 = 200
+SEASON_REWARD_TOP3 = 120
+SEASON_REWARD_TOP10 = 60
+
+# A4 随机彩蛋 / 幸运日
+LUCKY_BONUS_COINS = 50  # 幸运日额外金币
+
+# C2 每日一图
+DAILY_PUSH_DEFAULT_TIME = "09:00"
+DAILY_PUSH_DEFAULT_WEEKDAYS = "1,2,3,4,5,6,7"
+
 ACHIEVEMENTS: dict[str, dict[str, Any]] = {
     "first_meeting": {"title": "初见旅人", "kind": "total", "threshold": 1},
     "streak_7": {"title": "七日同行", "kind": "streak", "threshold": 7},
@@ -51,6 +80,8 @@ class CheckinProfile:
     repeat_penalty_total: float
     created_at: str
     updated_at: str
+    makeup_cards: int = 0
+    monthly_card_until: str = ""
 
 
 @dataclass(frozen=True)
@@ -154,5 +185,83 @@ class CheckinGlobalEvent:
     date_value: str
     name: str
     created_by: str
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True)
+class ItemPurchaseResult:
+    success: bool
+    profile: CheckinProfile
+    item_id: str
+    cost: int
+    message: str
+    count: int = 0
+    monthly_until: str = ""
+
+
+@dataclass(frozen=True)
+class MakeupResult:
+    success: bool
+    profile: CheckinProfile
+    record: CheckinRecord | None
+    date_key: str
+    message: str
+
+
+@dataclass(frozen=True)
+class GiftResult:
+    success: bool
+    sender: CheckinProfile
+    target: CheckinProfile
+    coins: int
+    affection: float
+    message: str
+    bond_day: int = 0
+
+
+@dataclass(frozen=True)
+class FavoriteItem:
+    user_id: str
+    illust_id: str
+    title: str
+    author: str
+    source: str
+    url: str
+    thumb_url: str
+    created_at: str
+
+
+@dataclass(frozen=True)
+class AuditLog:
+    log_id: int
+    operator: str
+    action: str
+    target: str
+    detail: str
+    ip: str
+    created_at: str
+
+
+@dataclass(frozen=True)
+class GroupSubscription:
+    group_id: str
+    group_name: str
+    platform: str
+    enabled: bool
+    tag: str
+    push_time: str
+    weekdays: str
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True)
+class GroupReminder:
+    group_id: str
+    group_name: str
+    platform: str
+    enabled: bool
+    remind_time: str
     created_at: str
     updated_at: str

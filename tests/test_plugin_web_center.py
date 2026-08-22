@@ -1,6 +1,6 @@
 """拾光集 WebUI 管理中心测试（Stage 5）
 
-验证 PluginWebApi 注册的 17 个管理端点挂载到
+验证 PluginWebApi 注册的 25 个管理端点挂载到
 /api/plugin-web/shiguang/<path>，以及管理页面注册。
 """
 
@@ -62,7 +62,7 @@ async def web_center(tmp_path):
 
 
 async def test_web_center_routes_and_page(web_center):
-    """17 个管理端点已注册，且管理页面已注册"""
+    """25 个管理端点已注册，且管理页面已注册"""
     _client, bot = web_center
     plugin = bot.plugin_manager.get("shiguang")
     assert plugin is not None
@@ -74,8 +74,16 @@ async def test_web_center_routes_and_page(web_center):
     assert "image-blacklist/thumb-data-batch" in paths
     assert "checkin-import" in paths
     assert "checkin-export" in paths
+    assert "checkin-stats" in paths
+    assert "checkin-season" in paths
+    assert "season-settle" in paths
+    assert "subscriptions" in paths
+    assert "subscriptions/update" in paths
+    assert "reminders" in paths
+    assert "reminders/update" in paths
+    assert "audit-logs" in paths
     assert "config" in paths
-    assert len(paths) == 17
+    assert len(paths) == 25
     assert plugin._pages and plugin._pages[0]["title"] == "拾光集管理中心"
 
 

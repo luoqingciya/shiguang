@@ -5,15 +5,28 @@ from datetime import datetime
 from pathlib import Path
 
 from .backup_store import BackupStoreMixin
+from .favorites_store import AuditStoreMixin, FavoritesStoreMixin
 from .feature_store import FeatureStoreMixin
+from .items_store import ItemsStoreMixin
 from .models import SHANGHAI_TZ
 from .ranking_store import RankingStoreMixin
 from .record_store import RecordStoreMixin
 from .schema import SchemaMixin
+from .season_store import SeasonStoreMixin
+from .social_store import SocialStoreMixin
+from .stats_store import StatsStoreMixin
+from .subscription_store import SubscriptionStoreMixin
 
 
 class CheckinStore(
     RecordStoreMixin,
+    ItemsStoreMixin,
+    SocialStoreMixin,
+    FavoritesStoreMixin,
+    AuditStoreMixin,
+    SeasonStoreMixin,
+    SubscriptionStoreMixin,
+    StatsStoreMixin,
     RankingStoreMixin,
     FeatureStoreMixin,
     BackupStoreMixin,

@@ -2,6 +2,34 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.1.0] - 2026-08-22
+
+### Added
+
+- **A1 补签卡 / 月卡**：商店新增「购买补签卡」（80 金币，补签最近缺失历史日并补给 30 金币，不破坏连签/累计）、「使用补签卡」与「购买月卡」（300 金币，30 天每日签到金币双倍，卡面与纯文本标注「月卡金币双倍」）。配套 `checkin_items` 存储层（`BEGIN IMMEDIATE` + 流水台账）与 schema v3 迁移（历史库自动补列）
+- **A2 赛季排行 + 结算奖励**：`签到排行 赛季` 查看固定 30 天滚动窗口排行（SQL 日期区间下推）；每日 00:05 经 CE scheduler 自动结算 Top1/3/10 金币奖励，`checkin_season_rewards` 台账防重复发放
+- **A3 签到日历**：`签到我的 日历 [YYYY-MM]` 输出本月打卡日历（已签 ✓ / 今日 今 / 未签 ·，含已签与连续天数）
+- **A4 随机彩蛋 / 幸运日**：群内首次签到命中幸运尾号（群号+日期尾字符 ∈ {7,8,9}）触发幸运签，额外发放 50 金币并写入流水与卡片副标题
+- **B1 签到互助**：`签到商店 送花 <@用户>`（20 金币 +0.25 好感，单目标每日上限）、`转账 <@用户> <金币数>`（`BEGIN IMMEDIATE` 双更新防竞态）、`羁绊 <@用户>`（同群共同签到满 3 天解锁称号并双向奖励 100 金币）
+- **C1 用户收藏 / 画廊**：`/收藏 <作品ID>` 收藏插画，`/画廊 [画师] [页码]` 分页查看个人图库
+- **C2 每日一图定时推送**：`签到管理 订阅 <查看|开启|关闭|标签|时间>` 管理群订阅；scheduler 每 5 分钟扫描，在 `push_time`（默认 09:00）与工作日命中时自动推送一张安全过滤 + 去重的每日一图（复用既有搜索/过滤/发送链路）
+- **D1 LLM 签到助手**：注册 `get_user_checkin_stats` / `get_group_season_ranking` 两个 Function Calling 工具（模块级 `@llm_tool`，自动带 `shiguang_` 前缀），LLM 对话中可直接回答签到天数/金币/群赛季排行；仅只读
+- **D2 签到运势**：签到卡副标题追加确定性「今日运势」文案（按用户+日期稳定，无网络依赖，离线兜底）
+- **D3 WebUI 管理面板扩展**：新增「运营」视图（7 日活跃/周打卡率/月打卡率/用户与记录规模统计、群订阅与提醒管理、按群赛季结算）与「审计」视图（审计日志筛选与分页）；排行新增「赛季」标签
+- **D5 定时签到提醒**：`签到管理 提醒 <查看|开启|关闭|时间>` 开启群签到提醒，scheduler 在 `remind_time`（默认 21:00）向已开启群推送提醒文案
+- **E1 管理操作审计**：事件增删、赛季结算、订阅/提醒变更、WebUI 成员调整与数据导入等操作写入 `checkin_audit_logs`，WebUI 可查
+
+### Fixed
+
+- **补签记录读取越界**：`_use_makeup_card_sync` 在 `with closing(conn)` 块结束后仍用 `conn` 查询补签记录，触发 `sqlite3.ProgrammingError: Cannot operate on a closed database`。查询移入事务块内
+- **赛季奖励发放遗漏 Top3/10**：`_season_coins_for_rank` 对 `SEASON_CHECKIN_TOTAL` 排序键误用 `tuple()` 包装（C414），语义不变但清理冗余；Top1/3/10 档位结算奖励均已发放并记账
+
+### Changed
+
+- **签到数据库 schema 升级至 v3**：新增补签卡/月卡字段与 `checkin_group_subscriptions`、`checkin_user_favorites`、`checkin_bonds`、`checkin_audit_logs`、`checkin_ledger`、`checkin_season_rewards`、`checkin_group_reminders` 表；历史库经 `_ensure_v3_user_columns` 平滑迁移
+- **`签到排行` 支持赛季别名**：`赛季` / `赛季榜` 均路由到赛季榜
+- **配置热更新后自动绑定 LLM 工具 store**：`_initialize` 完成后将签到库注入 LLM 工具模块，避免工具查询空引用
+
 ## [1.0.4] - 2026-08-22
 
 ### Fixed

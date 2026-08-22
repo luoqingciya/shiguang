@@ -31,6 +31,9 @@ from .rules import (
     is_boost_active,
 )
 from .rules import (
+    is_monthly_card_active as _is_monthly_card_active,
+)
+from .rules import (
     parse_date as _parse_date,
 )
 from .snapshot import validate_greeting_source as _validate_greeting_source
@@ -544,10 +547,15 @@ class RecordStoreMixin:
                 affection_reward = round(base_affection + bonus_affection, 2)
                 if boost_active:
                     affection_reward = round(affection_reward * BOOST_MULTIPLIER, 2)
+                monthly_active = _is_monthly_card_active(profile, date_key)
                 coins_reward = base_coins + bonus_coins
+                if monthly_active:
+                    coins_reward *= 2
                 new_coins = profile.coins + coins_reward
                 new_affection = round(profile.affection + affection_reward, 2)
                 note = _daily_note(user_id, date_key, streak_days)
+                if monthly_active:
+                    note = f"{note}（月卡金币双倍）"
 
                 conn.execute(
                     """
@@ -1034,6 +1042,8 @@ class RecordStoreMixin:
             repeat_penalty_total=round(float(row["repeat_penalty_total"] or 0), 2),
             created_at=str(row["created_at"] or ""),
             updated_at=str(row["updated_at"] or ""),
+            makeup_cards=int(row["makeup_cards"] or 0),
+            monthly_card_until=str(row["monthly_card_until"] or ""),
         )
 
     @staticmethod
