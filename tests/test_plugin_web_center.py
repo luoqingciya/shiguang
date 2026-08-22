@@ -82,8 +82,9 @@ async def test_web_center_routes_and_page(web_center):
     assert "reminders" in paths
     assert "reminders/update" in paths
     assert "audit-logs" in paths
+    assert "checkin-report" in paths
     assert "config" in paths
-    assert len(paths) == 25
+    assert len(paths) == 26
     assert plugin._pages and plugin._pages[0]["title"] == "拾光集管理中心"
 
 

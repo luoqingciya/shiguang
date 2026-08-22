@@ -1519,6 +1519,50 @@ dialog p.member-history-note {
   box-shadow: 0 4px 12px rgba(255, 112, 150, 0.3);
 }
 
+/* ---- 统计报表下载（E3） ---- */
+.report-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 12px;
+  align-items: center;
+  margin-top: 14px;
+}
+
+.report-hint {
+  color: var(--text-muted, var(--text));
+  font-size: 0.9em;
+}
+
+.report-row select {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  padding: 10px 14px;
+}
+
+.report-row select:focus {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+
+.report-row button {
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--primary);
+  color: #fff;
+  padding: 10px 16px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 10px rgba(255, 112, 150, 0.2);
+}
+
+.report-row button:hover {
+  background: var(--primary-hover);
+  box-shadow: 0 4px 12px rgba(255, 112, 150, 0.3);
+}
+
 /* ---- 审计模块 ---- */
 
 .audit-filter-form {
@@ -1683,6 +1727,9 @@ dialog p.member-history-note {
   .season-settle-row { grid-template-columns: 1fr; }
   .season-settle-row select { width: 100%; }
   .season-settle-row button { width: 100%; }
+  .report-row { grid-template-columns: 1fr; }
+  .report-row select { width: 100%; }
+  .report-row button { width: 100%; }
   .audit-filter-form { grid-template-columns: 1fr; }
   .audit-filter-form button { width: 100%; }
   .audit-table th:nth-child(4),

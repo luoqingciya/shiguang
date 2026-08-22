@@ -96,6 +96,8 @@ const els = {
   reminderCount: $("reminderCount"),
   seasonSettleGroup: $("seasonSettleGroup"),
   seasonSettleBtn: $("seasonSettleBtn"),
+  reportBtn: $("reportBtn"),
+  reportDays: $("reportDays"),
   seasonSettleResult: $("seasonSettleResult"),
   auditBody: $("auditBody"),
   auditEmpty: $("auditEmpty"),
@@ -1197,6 +1199,23 @@ function bindEvents() {
       showToast(els.seasonSettleResult.textContent, "error");
     } finally {
       setButtonBusy(els.seasonSettleBtn, false, "正在结算…", "结算当前赛季");
+    }
+  });
+
+  els.reportBtn.addEventListener("click", async () => {
+    const days = els.reportDays.value || "7";
+    const button = els.reportBtn;
+    els.reportResult.textContent = "";
+    setButtonBusy(button, true, "正在生成…", "下载周报 CSV");
+    try {
+      await bridge.download("checkin-report", { days }, `checkin-report-${days}d.csv`);
+      els.reportResult.textContent = "报表已生成并开始下载";
+      showToast("统计报表下载成功");
+    } catch (error) {
+      els.reportResult.textContent = error.message || "生成报表失败，请重试。";
+      showToast(els.reportResult.textContent, "error");
+    } finally {
+      setButtonBusy(button, false, "正在生成…", "下载周报 CSV");
     }
   });
 

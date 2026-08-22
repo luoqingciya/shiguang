@@ -213,6 +213,28 @@ class CheckinApplicationMixin:
             except Exception as exc:
                 logger.debug(f"{LOG_PREFIX} 幸运日加成失败: error_type={type(exc).__name__}")
 
+        # B2 今日签到速度榜：群内前 3 名首次签到播报
+        if not result.duplicate and group_id and record is not None:
+            try:
+                ranking = await self.checkin_store.get_group_ranking(
+                    group_id=group_id, ranking_type="today", limit=3
+                )
+                rank = next(
+                    (
+                        item["rank"]
+                        for item in ranking.get("entries", [])
+                        if str(item.get("user_id") or "") == user_id
+                    ),
+                    None,
+                )
+                medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank)
+                if medal:
+                    await event.send(
+                        event.plain_result(f"{medal} 今日签到第 {rank} 名：{username}")
+                    )
+            except Exception as exc:
+                logger.debug(f"{LOG_PREFIX} 签到速度榜播报失败: error_type={type(exc).__name__}")
+
         cache = getattr(self, "checkin_cache", None)
         if cache is None:
             logger.warning(f"{LOG_PREFIX} 签到卡回退纯文字: reason=cache_unavailable")

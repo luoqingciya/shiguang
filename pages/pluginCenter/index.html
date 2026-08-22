@@ -258,6 +258,24 @@
             </div>
           </section>
 
+          <section class="panel report-panel">
+            <div class="panel-title">
+              <div>
+                <p>CHECK-IN REPORT</p>
+                <h3>统计报表下载</h3>
+              </div>
+            </div>
+            <div class="report-row">
+              <span class="report-hint">导出近 7 天或 30 天各群活跃与签到人次统计（CSV）</span>
+              <select id="reportDays" aria-label="报表时间范围">
+                <option value="7">近 7 天</option>
+                <option value="30">近 30 天</option>
+              </select>
+              <button id="reportBtn" type="button">下载周报 CSV</button>
+              <p id="reportResult" class="form-error" aria-live="polite"></p>
+            </div>
+          </section>
+
           <section class="panel season-panel">
             <div class="panel-title">
               <div>

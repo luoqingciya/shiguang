@@ -12,6 +12,7 @@ import pytest
 
 from checkin import CheckinStore
 from checkin.fortune import generate_fortune
+from checkin.holiday_tags import festival_tag_for
 from checkin.models import (
     BOND_REWARD_COINS,
     GIFT_COST,
@@ -396,3 +397,47 @@ async def test_checkin_stats_aggregates() -> None:
         assert stats["total_groups"] == 1
         assert stats["dau_7"] == 1
         assert stats["week_checkin_rate"] == 100.0
+
+
+# ============ C3 节日图集 ============
+
+
+def test_festival_tag_mapping() -> None:
+    # 在线节假日名称命中
+    assert festival_tag_for("2026-02-17", "春节") == "新年"
+    assert festival_tag_for("2026-09-25", "中秋节") == "中秋"
+    assert festival_tag_for("2026-10-01", "国庆节") == "国庆"
+    # 日期特判兜底（非国假）
+    assert festival_tag_for("2026-12-25", "") == "圣诞"
+    assert festival_tag_for("2026-02-14", "") == "情人节"
+    # 未命中返回空串
+    assert festival_tag_for("2026-07-20", "正常工作日") == ""
+    assert festival_tag_for("2026-07-20", "") == ""
+    assert festival_tag_for("invalid", "") == ""
+
+
+# ============ E3 统计报表 CSV ============
+
+
+def test_report_csv_render() -> None:
+    from shiguang.plugin_api.api import _render_report_csv
+
+    csv_text = _render_report_csv(
+        [
+            {
+                "group_id": "20001",
+                "group_name": "群A",
+                "platform": "aiocqhttp",
+                "today_checkins": 3,
+                "month_checkins": 80,
+                "avg_daily_active": 4.0,
+                "total_checkins": 30,
+                "season_top1": "Alice",
+            }
+        ],
+        days=7,
+    )
+    lines = csv_text.strip().splitlines()
+    assert lines[0].startswith("群号")
+    assert "20001" in lines[1]
+    assert "Alice" in lines[1]

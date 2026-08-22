@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import csv
+import io
 import logging
 import math
 from datetime import datetime
@@ -32,6 +34,39 @@ except ImportError:  # Direct imports used by the test suite.
     )
 
 logger = logging.getLogger(__name__)
+
+
+_REPORT_CSV_COLUMNS = (
+    "群号",
+    "群名",
+    "平台",
+    "今日签到",
+    "本月签到",
+    "日均活跃",
+    "近N天签到人次",
+    "赛季榜第一",
+)
+
+
+def _render_report_csv(rows: list[dict[str, object]], days: int) -> str:
+    """把群统计行渲染为 CSV 文本（写盘用 utf-8-sig，兼容 Excel 中文）。"""
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(_REPORT_CSV_COLUMNS)
+    for row in rows:
+        writer.writerow(
+            [
+                str(row.get("group_id") or ""),
+                str(row.get("group_name") or ""),
+                str(row.get("platform") or ""),
+                str(row.get("today_checkins") or 0),
+                str(row.get("month_checkins") or 0),
+                str(row.get("avg_daily_active") or 0),
+                str(row.get("total_checkins") or 0),
+                str(row.get("season_top1") or ""),
+            ]
+        )
+    return buffer.getvalue()
 
 
 class PluginWebApi:
@@ -126,6 +161,12 @@ class PluginWebApi:
             ),
             ("checkin-export", self.checkin_export, ["GET"], "Export check-in backup"),
             ("checkin-import", self.checkin_import, ["POST"], "Import check-in backup"),
+            (
+                "checkin-report",
+                self.checkin_report,
+                ["GET"],
+                "Download check-in CSV report",
+            ),
             (
                 "checkin-stats",
                 self.checkin_stats,
@@ -340,6 +381,60 @@ class PluginWebApi:
             return jsonify({"success": True, **stats})
         except Exception as exc:
             return self.internal_error("读取签到统计", exc)
+
+    async def checkin_report(self):
+        """E3 群签到统计报表（CSV 下载）：近 7/30 天活跃、签到率、赛季榜第一。"""
+        if self.plugin.checkin_store is None:
+            return self._unavailable("签到数据尚未初始化")
+        try:
+            days = self._parse_int(request.args.get("days", "7"), 7, 30)
+            if days not in (7, 30):
+                raise ValueError("days must be 7 or 30")
+            group_id = str(request.args.get("group_id", "") or "").strip()
+            groups = await self.plugin.checkin_store.list_checkin_groups()
+            if group_id:
+                groups = [item for item in groups if str(item.get("group_id") or "") == group_id]
+            rows: list[dict[str, object]] = []
+            for group in groups:
+                gid = str(group.get("group_id") or "")
+                trend = await self.plugin.checkin_store.get_group_trend(group_id=gid, days=days)
+                counts = [int(item.get("count") or 0) for item in trend]
+                total = sum(counts)
+                avg = round(total / len(counts), 1) if counts else 0
+                season = await self.plugin.checkin_store.get_season_ranking(group_id=gid, limit=1)
+                entries = season.get("entries") or []
+                rows.append(
+                    {
+                        "group_id": gid,
+                        "group_name": str(group.get("group_name") or gid),
+                        "platform": str(group.get("platform") or ""),
+                        "today_checkins": int(group.get("today_count") or 0),
+                        "month_checkins": int(group.get("month_count") or 0),
+                        "avg_daily_active": avg,
+                        "total_checkins": total,
+                        "season_top1": (str(entries[0].get("username") or "") if entries else ""),
+                    }
+                )
+            csv_text = await asyncio.to_thread(_render_report_csv, rows, days)
+            data_dir = getattr(self.plugin, "data_dir", None)
+            if not data_dir:
+                raise RuntimeError("插件数据目录不可用")
+            report_dir = Path(data_dir) / "checkin_reports"
+            await asyncio.to_thread(report_dir.mkdir, parents=True, exist_ok=True)
+            filename = f"checkin_report_{self.plugin.checkin_store.today_key()}_{days}d.csv"
+            path = report_dir / filename
+            await asyncio.to_thread(path.write_text, csv_text, encoding="utf-8-sig")
+            self._audit("checkin-report", f"days={days} group_id={group_id or '(全部)'}")
+            return await send_file(
+                str(path),
+                mimetype="text/csv",
+                as_attachment=True,
+                attachment_filename=filename,
+            )
+        except ValueError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+        except Exception as exc:
+            return self.internal_error("生成签到统计报表", exc)
 
     async def checkin_season(self):
         if self.plugin.checkin_store is None:

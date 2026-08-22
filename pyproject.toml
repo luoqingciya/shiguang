@@ -1,6 +1,6 @@
 [project]
 name = "shiguang-plugin"
-version = "1.1.0"
+version = "1.2.0"
 description = "拾光集 — Qingci-Bot 安全插画发图 + 签到插件（由画境拾珍移植）"
 requires-python = ">=3.10"
 

@@ -53,6 +53,7 @@ from .checkin.cache import CheckinCardCache
 from .checkin.commands import CheckinCommandMixin
 from .checkin.greeting import CheckinGreetingGenerator
 from .checkin.holiday import HolidayCalendar
+from .checkin.holiday_tags import festival_tag_for
 from .checkin.shop import CheckinShopMixin
 from .pixiv import DeliveryMixin, FiltersMixin, SearchMixin
 from .pixiv.client import PixivClient
@@ -76,7 +77,7 @@ def _read_plugin_version() -> str:
         version = meta.get("version") if isinstance(meta, dict) else None
     except (OSError, ValueError):
         version = None
-    return str(version) if version else "1.1.0"
+    return str(version) if version else "1.2.0"
 
 
 PLUGIN_VERSION = _read_plugin_version()
@@ -1093,6 +1094,20 @@ class ShiguangPlugin(
         if tokens[-1].isdigit():
             return " ".join(tokens[:-1]), tokens[-1]
         return " ".join(tokens), ""
+
+    def _festival_background_tag(self, date_key: str | None = None) -> str:
+        """C3 节日图集：返回当天命中节日对应的背景推荐标签（未命中空串）。"""
+        date_key = date_key or CheckinStore.today_key()
+        name = ""
+        calendar = getattr(self, "holiday_calendar", None)
+        if calendar is not None:
+            try:
+                holiday = calendar.lookup(date_key)
+                if holiday is not None:
+                    name = holiday.name
+            except Exception:
+                name = ""
+        return festival_tag_for(date_key, name)
 
     def _check_rate_limit(self, user_id: str) -> int:
         rate_limit = self._cfg_int("rate_limit_seconds", 3, 0, 60)

@@ -231,7 +231,13 @@ class CheckinBackgroundService:
     ) -> CardBackground | None:
         if _selected_tag is None:
             tag_config = self.host._cfg_str("checkin_background_tag", "")
-            for selected_tag in self.tag_candidates(tag_config):
+            candidates = self.tag_candidates(tag_config)
+            # C3 节日图集：当天命中节日时把节日标签作为首选尝试，
+            # 无结果时自然回退用户配置标签（tag_candidates 已随机化）
+            festival_tag = getattr(self.host, "_festival_background_tag", lambda: "")()
+            if festival_tag and festival_tag not in candidates:
+                candidates = [festival_tag, *candidates]
+            for selected_tag in candidates:
                 background = await self.download(
                     event,
                     record,
