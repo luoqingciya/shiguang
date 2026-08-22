@@ -141,6 +141,14 @@ class PluginWebApi:
         logger.error(f"{self.log_prefix} Web API {action}失败: error_type={type(exc).__name__}")
         return jsonify({"success": False, "error": self.internal_error_message}), 500
 
+    def _audit(self, action: str, detail: str = "") -> None:
+        """M20：关键 Web 写操作审计留痕（含调用方地址），供事后排查。"""
+        actor = request.remote_addr or "unknown"
+        logger.warning(
+            f"{self.log_prefix} 审计: action={action} actor={actor}"
+            + (f" detail={detail}" if detail else "")
+        )
+
     async def overview(self):
         if self.plugin.checkin_store is None or self.plugin.image_index is None:
             return self._unavailable()
@@ -263,6 +271,11 @@ class PluginWebApi:
                 f"total_days={before['total_days']}->{member['total_days']} "
                 f"streak_days={before['streak_days']}->{member['streak_days']}"
             )
+            self._audit(
+                "checkin-members/update",
+                f"user_id={user_id} coins={before['coins']}->{member['coins']} "
+                f"affection={before['affection']}->{member['affection']}",
+            )
             return jsonify({"success": True, "member": member})
         except LookupError as exc:
             return jsonify({"success": False, "error": str(exc)}), 404
@@ -301,6 +314,7 @@ class PluginWebApi:
             return jsonify({"success": False, "error": "该词已经属于内置安全词"}), 400
         try:
             await self.plugin.image_index.add_safety_term(term, added_by="web")
+            self._audit("content-safety/terms/add", f"term={term!r}")
             return jsonify({"success": True, "term": term})
         except ValueError as exc:
             return jsonify({"success": False, "error": str(exc)}), 400
@@ -322,6 +336,7 @@ class PluginWebApi:
             removed = await self.plugin.image_index.remove_safety_term(term)
             if not removed:
                 return jsonify({"success": False, "error": "自定义安全词不存在"}), 404
+            self._audit("content-safety/terms/remove", f"term={term!r}")
             return jsonify({"success": True, "term": term})
         except ValueError as exc:
             return jsonify({"success": False, "error": str(exc)}), 400
@@ -371,6 +386,7 @@ class PluginWebApi:
                 reason=reason,
                 added_by="web",
             )
+            self._audit("image-blacklist/add", f"illust_id={illust_id} reason={reason!r}")
             if illust is not None:
                 await self._try_save_blacklist_thumbnail(illust_id, illust)
             record = next(
@@ -452,6 +468,7 @@ class PluginWebApi:
             removed = await self.plugin.image_index.remove_blacklist_illust(illust_id)
             if removed is None:
                 return jsonify({"success": False, "error": "黑名单记录不存在"}), 404
+            self._audit("image-blacklist/remove", f"illust_id={illust_id}")
             return jsonify({"success": True, "record": removed})
         except Exception as exc:
             return self.internal_error("解除作品黑名单", exc)
@@ -465,6 +482,9 @@ class PluginWebApi:
             return jsonify({"success": False, "error": "缩略图不存在"}), 404
         try:
             raw = await asyncio.to_thread(path.read_bytes)
+            # 清理项：缩略图读取加 1 MiB 上限，防止异常大文件打爆响应
+            if len(raw) > 1_048_576:
+                return jsonify({"success": False, "error": "缩略图文件过大"}), 400
             encoded = base64.b64encode(raw).decode("ascii")
         except OSError as exc:
             return self.internal_error("读取黑名单缩略图", exc)
@@ -539,6 +559,11 @@ class PluginWebApi:
             logger.warning(
                 f"{self.log_prefix} 现有签到数据已由 JSON 备份覆盖: "
                 f"users={result['users']}, records={result['records']}"
+            )
+            self._audit(
+                "checkin-import",
+                f"filename={filename!r} users={result['users']} records={result['records']} "
+                f"rollback_file={Path(rollback_path).name!r}",
             )
             return jsonify(
                 {
@@ -658,6 +683,9 @@ class PluginWebApi:
         for record_id, path in paths.items():
             try:
                 raw = Path(str(path)).read_bytes()
+                # 清理项：缩略图读取加 1 MiB 上限
+                if len(raw) > 1_048_576:
+                    continue
                 encoded = base64.b64encode(raw).decode("ascii")
             except (OSError, ValueError):
                 continue

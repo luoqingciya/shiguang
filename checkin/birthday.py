@@ -3,6 +3,9 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
+
+_BIRTHDAY_TZ = ZoneInfo("Asia/Shanghai")
 
 
 def parse_month_day(value: object) -> tuple[int, int] | None:
@@ -34,7 +37,8 @@ def parse_month_day(value: object) -> tuple[int, int] | None:
         and len(numeric_text) in {9, 10}
     ):
         try:
-            converted = datetime.fromtimestamp(int(value))
+            # 清理项：9/10 位时间戳显式按北京时间解析，避免依赖宿主机时区
+            converted = datetime.fromtimestamp(int(value), tz=_BIRTHDAY_TZ)
             return converted.month, converted.day
         except (OSError, OverflowError, ValueError):
             return None

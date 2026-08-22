@@ -15,6 +15,7 @@ from __future__ import annotations
 import contextvars
 from typing import Any
 
+from fastapi import UploadFile as _FastAPIUploadFile
 from fastapi.responses import FileResponse
 
 _current_request: contextvars.ContextVar[Any] = contextvars.ContextVar("shiguang_web_request")
@@ -56,10 +57,17 @@ class _Files:
 
     async def _load(self):
         form = await self._request.form()
-        # 把每个 UploadFile 适配为 quart FileStorage 风格
+
+        # 清理项：表单可能含普通文本字段，仅适配真正的 UploadFile，避免
+        # 文本字段触发 AttributeError → 500
+        def _getlist(key):
+            return [
+                UploadAdapter(u) for u in form.getlist(key) if isinstance(u, _FastAPIUploadFile)
+            ]
+
         files = type("Form", (), {})()
         files.keys = lambda: list(form.keys())
-        files.getlist = lambda key: [UploadAdapter(u) for u in form.getlist(key)]
+        files.getlist = _getlist
         return files
 
     def __await__(self):
@@ -72,6 +80,13 @@ class _RequestProxy:
     @property
     def args(self) -> Any:
         return _current_request.get().query_params
+
+    @property
+    def remote_addr(self) -> str:
+        """M20：调用方地址（best-effort，取不到返回空串），用于写操作审计。"""
+        client = getattr(_current_request.get(), "client", None)
+        host = getattr(client, "host", None) if client is not None else None
+        return str(host or "")
 
     async def get_json(self, silent: bool = False) -> Any:
         try:

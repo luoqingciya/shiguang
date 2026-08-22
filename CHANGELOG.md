@@ -2,6 +2,44 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.4] - 2026-08-22
+
+### Fixed
+
+- **签到管理「事件添加」命令 100% 失效**：`cmd_checkin_event_add` 把整个 `ctx.args`（如 `"年度 12-25 圣诞节"`）当作 `event_type` 传入，`date_value`/`name` 恒为空串，被 `_handle_checkin_event_admin` 的 `not name` 校验拦截，静默返回用法提示。现按 `<年度|单次> <日期> <名称>` 拆 3 个 token 后按位传入，事件添加恢复可用
+- **签到卡片「加持剩余天数」恒显示 0**：`_checkin_profile_from_record` 将 `boost_start_date`/`boost_until_date` 硬编码为空写入卡片快照，`boost_remaining_days` 恒返回 0，图片卡永远不显示"加持剩余 N 天"（与纯文本展示不一致）。快照改为保留真实 profile 的加持起止日期（含管理员预览与重复签到路径）
+- **未确认生日用户每次签到都调 QQ API**：`qq_birthday_checked=0` 且读取非 definitive 时不标记，每次签到（含重复查卡）最多 +3s `get_stranger_info`。现失败/未公开按天退避（进程级缓存当天尝试日期），当天不再重复查询
+- **Pixiv 客户端每次 `/p` 无条件重建（连接泄漏）**：Pixiv-only 场景每次搜索都重建客户端且旧 aiohttp session 未 close。`_init_client` 增加幂等保护（已有可用客户端直接复用），重建前调度关闭旧 session
+- **Pixiv 401/403/429 无错误分类**：token 失效/无权限/限流混为一般错误且被无谓重试。现按 HTTP 状态码分类并给出明确提示（重新配置 token / 检查账号状态 / 稍后再试），确定性错误不再重试
+- **下载器 SSRF 缺口**：直连 URL 默认跟随重定向，`lolicon_api_url` 若指向内网/恶意服务可被利用访问内网并发送到群里。下载前预检目标主机（私网/回环/保留网段拒绝），重定向后对最终 URL 二次校验
+- **插件 Config 为"死配置"**：`class Config` 定义在模块级，CE 框架取 `type(plugin).Config`（类内属性），WebUI 插件配置表单拿不到 schema；`_conf_schema.json` 在 CE 全库无读取点。迁移为插件类内 pydantic `BaseModel`（含全部字段描述与默认值，兼容历史 `_conf_schema.json`），删除死文件 `_conf_schema.json`，WebUI 配置表单恢复
+- **`send_as_forward` 无配置入口**：`_forward_threshold()` 回退读取该字段但 Config/schema 均未声明。已补声明（历史兼容开关，未配置 `forward_threshold` 时生效）
+
+### Performance
+
+- **签到背景选择/恢复加总时间预算**：背景下载最多尝试 5 页 × 8 候选，无预算时最坏数十分钟并长时间持有同一用户的流程锁。现加 90s 总预算（`asyncio.wait_for`），超时走纯文本兜底、占用自动释放
+- **多图下载加总时间预算**：`max_count=20` + 每张重试时最坏阻塞数十分钟。逐张以剩余时间预算包裹（`asyncio.wait_for`，兼容 Python 3.10），超预算中止剩余下载、已成功部分照常发送
+- **合并转发双层重试收敛单层**：`search.py` 外层 3 次 × `_send_forward` 内层 3 次最坏 9 次尝试约 20s 退避。现收敛为事件层 `_send_forward` 单层重试，外层失败直接降级逐条发送
+- **候选数按需请求**：用户只要 1 张也向上游要 5/20 张浪费配额。现取 `max(count, 3)`（封顶 `max_count`）
+- **群排行 today/month 用 SQL 下推日期过滤**：原先拉该群全部历史 presence 行做 Python 聚合，大群（10 万行级）每次排行全量读入内存。today/month 改为 `WHERE date_key BETWEEN` 下推，streak/total 保持全量
+- **读写锁拆分（纯读不再持全局锁）**：签到/购买/排行/备份共用一把 `asyncio.Lock`，大群排行、备份导出等长读会阻塞所有用户写入。排行与备份导出等纯读操作去掉锁（WAL 模式读不阻塞写），导出改用单连接 `BEGIN` 保证快照一致；SQLite busy timeout 提到 10s
+- **签到背景图 data URL 跨档缓存**：渲染降档最多 3 档，每档重建视图模型都会对同一背景图重复「读盘 + base64」。以 `(path, mtime_ns, size)` 为键缓存成功结果，同一次签到的后续档位直接命中
+- **重复签到跳过内容组装**：已持久化问候的重复签到直接进入查卡/发卡，跳过成就解锁、生日读取等无谓 DB 写事务与外部调用
+
+### Security
+
+- **插件配置 API 脱敏 + 空值保护**：CE 侧敏感字段（token/secret/password/api_key 等）在 WebUI 不回显明文；保存时空值不覆盖已有密钥。另新增 `on_config_update` 钩子，配置保存后热生效，无需重载插件
+- **关键 Web 写操作审计留痕**：`checkin-import`（覆盖全库）、`checkin-members/update`（篡改金币）、安全词增删、作品黑名单增删均记录操作 + 调用方地址，供事后排查
+
+### Changed
+
+- **下载器仅对 Pixiv 系主机附带 Pixiv Referer**：非 Pixiv CDN（Lolicon 反代等）携带 Pixiv Referer 可能被个别 CDN 拒绝
+- **生日时间戳显式按北京时间解析**：9/10 位时间戳不再依赖宿主机时区
+- **购买加持余额读取与扣款并入同一事务**：`_purchase_boost_sync` 在 `BEGIN IMMEDIATE` 内完成读余额 + 扣款，消除绕过全局锁（Web 直连/多实例）时的 TOCTOU 超扣
+- **备份导入耗时告警**：锁内导出/导入超过 2s 记录耗时与用户数，便于评估大库导入对签到的影响
+- **`render_html` timeout 参数签名探测**：框架签名变化时仍能正常渲染，不再因 `TypeError` 被兜底吞掉而静默降级纯文本
+- **移除死代码**：`components_to_segments` 公开包装器、`get_message_str` 等无引用方法；`_Files._load` 跳过非文件表单字段（避免文本字段 500）；黑名单缩略图读取加 1 MiB 上限；排行时间用 `fromisoformat` 解析
+
 ## [1.0.3] - 2026-08-21
 
 ### Fixed

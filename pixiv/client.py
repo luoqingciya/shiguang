@@ -22,6 +22,32 @@ def _is_missing_illust_error(exc: Exception) -> bool:
     return "404" in message or "not found" in message or "not_found" in message
 
 
+def _classify_pixiv_error(exc: Exception, operation: str) -> Exception:
+    """M15：按 HTTP 状态码分类 Pixiv 错误，返回带明确提示的异常。
+
+    401/403/429 属于确定性错误（token 失效/无权限/限流），重试无意义；
+    识别后直接给出可定位提示，避免与网络抖动混为一谈。
+    """
+    for attr in ("status", "status_code", "code"):
+        value = getattr(exc, attr, None)
+        try:
+            status = int(value)
+        except (TypeError, ValueError):
+            continue
+        if status == 401:
+            return RuntimeError(
+                f"Pixiv {operation}认证失败（401）：refresh_token 无效或已过期，"
+                "请重新配置 pixiv_refresh_token"
+            )
+        if status == 403:
+            return RuntimeError(
+                f"Pixiv {operation}无权限（403）：账号可能被限制访问，请检查 Pixiv 账号状态"
+            )
+        if status == 429:
+            return RuntimeError(f"Pixiv {operation}请求过于频繁（429）：已被限流，请稍后再试")
+    return exc
+
+
 @dataclass
 class PixivClient:
     refresh_token: str
@@ -101,6 +127,10 @@ class PixivClient:
         try:
             return await self._wait_for(factory(), operation=operation)
         except Exception as exc:
+            classified = _classify_pixiv_error(exc, operation)
+            if classified is not exc:
+                # M15：401/403/429 等确定性错误直接抛出可定位提示，不做无谓重试
+                raise classified from exc
             if self._closed:
                 raise
             logger.warning(
@@ -109,7 +139,10 @@ class PixivClient:
             await asyncio.sleep(1.0)
             if self._closed:
                 raise RuntimeError("Pixiv 客户端已关闭") from exc
-            return await self._wait_for(factory(), operation=operation)
+            try:
+                return await self._wait_for(factory(), operation=operation)
+            except Exception as exc2:
+                raise _classify_pixiv_error(exc2, operation) from exc
 
     async def search(self, tag: str, offset: int = 0) -> list[dict]:
         api = await self._acquire_api()

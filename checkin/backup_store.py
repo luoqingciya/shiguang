@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
@@ -13,11 +14,16 @@ from .models import (
 )
 from .snapshot import validate_checkin_snapshot as _validate_checkin_snapshot
 
+logger = logging.getLogger(__name__)
+
+LOG_PREFIX = "[GetPx]"
+
 
 class BackupStoreMixin:
     async def export_snapshot(self) -> dict[str, Any]:
-        async with self._lock:
-            return await asyncio.to_thread(self._export_snapshot_sync)
+        # M5：导出为纯读操作，不持有全局写锁，避免大库导出阻塞所有签到。
+        # 单连接 BEGIN 内完成全部读取，保证多表快照一致。
+        return await asyncio.to_thread(self._export_snapshot_sync)
 
     async def import_snapshot(self, snapshot: dict[str, Any]) -> dict[str, Any]:
         async with self._lock:
@@ -33,49 +39,68 @@ class BackupStoreMixin:
         回滚备份和导入必须原子完成，否则两步之间的并发签到会被导入
         覆盖、却不在回滚备份里。
         """
+        import time as _time
+
+        started = _time.monotonic()
         async with self._lock:
             rollback_snapshot = await asyncio.to_thread(self._export_snapshot_sync)
             rollback_path = await asyncio.to_thread(write_rollback, rollback_snapshot)
             result = await asyncio.to_thread(self._import_snapshot_sync, snapshot)
+        # 清理项：大库导入期间阻塞所有签到，记录耗时便于评估
+        elapsed_ms = int((_time.monotonic() - started) * 1000)
+        if elapsed_ms >= 2000:
+            logger.warning(
+                f"{LOG_PREFIX} 签到备份导入耗时较长: elapsed_ms={elapsed_ms} "
+                f"users={len(rollback_snapshot.get('users') or [])}"
+            )
         return rollback_path, result
 
     def _export_snapshot_sync(self) -> dict[str, Any]:
         with closing(self._connect()) as conn:
-            users = [
-                dict(row) for row in conn.execute("SELECT * FROM checkin_users ORDER BY user_id")
-            ]
-            records = [
-                dict(row)
-                for row in conn.execute("SELECT * FROM checkin_records ORDER BY date_key, user_id")
-            ]
-            global_events = [
-                dict(row)
-                for row in conn.execute("SELECT * FROM checkin_global_events ORDER BY event_id")
-            ]
-            achievements = [
-                dict(row)
-                for row in conn.execute(
-                    "SELECT * FROM checkin_achievements ORDER BY user_id, achievement_id"
-                )
-            ]
-            user_themes = [
-                dict(row)
-                for row in conn.execute(
-                    """
-                    SELECT * FROM checkin_user_themes
-                    ORDER BY user_id, acquired_at, theme_id
-                    """
-                )
-            ]
-            group_presence = [
-                dict(row)
-                for row in conn.execute(
-                    """
-                    SELECT * FROM checkin_group_presence
-                    ORDER BY date_key, group_id, user_id
-                    """
-                )
-            ]
+            conn.execute("BEGIN")
+            try:
+                users = [
+                    dict(row)
+                    for row in conn.execute("SELECT * FROM checkin_users ORDER BY user_id")
+                ]
+                records = [
+                    dict(row)
+                    for row in conn.execute(
+                        "SELECT * FROM checkin_records ORDER BY date_key, user_id"
+                    )
+                ]
+                global_events = [
+                    dict(row)
+                    for row in conn.execute("SELECT * FROM checkin_global_events ORDER BY event_id")
+                ]
+                achievements = [
+                    dict(row)
+                    for row in conn.execute(
+                        "SELECT * FROM checkin_achievements ORDER BY user_id, achievement_id"
+                    )
+                ]
+                user_themes = [
+                    dict(row)
+                    for row in conn.execute(
+                        """
+                        SELECT * FROM checkin_user_themes
+                        ORDER BY user_id, acquired_at, theme_id
+                        """
+                    )
+                ]
+                group_presence = [
+                    dict(row)
+                    for row in conn.execute(
+                        """
+                        SELECT * FROM checkin_group_presence
+                        ORDER BY date_key, group_id, user_id
+                        """
+                    )
+                ]
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
         return {
             "schema_version": CHECKIN_SNAPSHOT_SCHEMA_VERSION,
             "plugin_name": CHECKIN_SNAPSHOT_PLUGIN_NAME,

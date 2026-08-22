@@ -25,6 +25,16 @@ logger = logging.getLogger(__name__)
 LOG_PREFIX = "[GetPx]"
 DEFAULT_AUTO_DOWNGRADE_ORIGINAL_LIMIT_MB = 3.0
 
+# M8：签到背景选择/恢复总时间预算。background_service 会尝试最多 5 页 × 8 个
+# 候选（每张下载最长 request_timeout，默认 30s），无预算时最坏可达数十分钟，
+# 长时间持有同一用户的流程锁并阻塞其重复签到。超时后走纯文本兜底。
+CHECKIN_BACKGROUND_SELECT_TIMEOUT_SECONDS = 90.0
+
+# M6：QQ 生日读取失败按天退避（进程级）。读取失败/未公开时不标记 definitive，
+# 原实现每次签到都会重新打 get_stranger_info（每次 +up to 3s）；记录最近尝试日期，
+# 当天不再重复查询，避免高频签到（重复查卡）产生无谓外部调用。
+_QQ_BIRTHDAY_ATTEMPT_DATES: dict[str, str] = {}
+
 
 @dataclass(frozen=True)
 class QQBirthdayLookup:
@@ -153,12 +163,17 @@ class CheckinApplicationMixin:
             return
 
         try:
-            record = await self._prepare_checkin_record_content(
-                event,
-                record,
-                allow_ai=not result.duplicate,
-            )
-            result = replace(result, record=record)
+            if result.duplicate and record.greeting:
+                # M9：重复签到且已有问候 → 跳过内容组装（成就解锁、生日读取等
+                # 无谓 DB 写事务与外部调用），直接进入查卡/发卡流程。
+                pass
+            else:
+                record = await self._prepare_checkin_record_content(
+                    event,
+                    record,
+                    allow_ai=not result.duplicate,
+                )
+                result = replace(result, record=record)
         except Exception as e:
             logger.warning(
                 f"{LOG_PREFIX} 签到内容持久化失败，回退纯文字: "
@@ -178,6 +193,17 @@ class CheckinApplicationMixin:
         claim_held = False
         background_persisted = False
         profile_snapshot = self._checkin_profile_from_record(record)
+        # 卡片「加持剩余天数」需真实 boost 日期（record 快照不携带）
+        try:
+            real_profile = await self.checkin_store.get_profile(record.user_id)
+            if real_profile:
+                profile_snapshot = self._checkin_profile_from_record(
+                    record,
+                    boost_start_date=real_profile.boost_start_date,
+                    boost_until_date=real_profile.boost_until_date,
+                )
+        except Exception:
+            logger.debug(f"{LOG_PREFIX} 读取真实 profile 失败，使用记录快照")
         user_title = await self._get_checkin_user_title(record.user_id)
         preferred_tier = (
             self._record_checkin_render_tier(record)
@@ -190,10 +216,14 @@ class CheckinApplicationMixin:
             if result.duplicate:
                 background = self._checkin_background_from_record(record)
             else:
-                background = await self._prepare_checkin_background(
-                    event,
-                    record,
-                    render_tier=preferred_tier,
+                # M8：背景选择含网络下载，加总预算，避免流程锁被长时间占用
+                background = await asyncio.wait_for(
+                    self._prepare_checkin_background(
+                        event,
+                        record,
+                        render_tier=preferred_tier,
+                    ),
+                    timeout=CHECKIN_BACKGROUND_SELECT_TIMEOUT_SECONDS,
                 )
                 claim_held = bool(
                     background is not None
@@ -216,7 +246,19 @@ class CheckinApplicationMixin:
             cache_hit = cached_path is not None
             if cached_path is None and result.duplicate:
                 stage = "background_restore"
-                background = await self._restore_checkin_background(event, record)
+                # M8：恢复背景同样含网络下载（illust_detail + 下载），加总预算
+                background = await asyncio.wait_for(
+                    self._restore_checkin_background(event, record),
+                    timeout=CHECKIN_BACKGROUND_SELECT_TIMEOUT_SECONDS,
+                )
+                # 清理项：恢复成功（pixiv_daily）时恢复流程内已 claim，
+                # 未发送时需在 finally 释放，避免 pending claim 泄漏
+                claim_held = bool(
+                    background is not None
+                    and background.mode == "pixiv_daily"
+                    and background.illust_id
+                    and self._checkin_background_claims_enabled()
+                )
                 restored_quality = str(getattr(background, "quality", "") or "")
                 saved_quality = str(getattr(record, "background_quality", "") or "")
                 if (
@@ -548,14 +590,26 @@ class CheckinApplicationMixin:
         preference = await self.checkin_store.get_user_preference(user_id)
         if preference.birthday_source == "manual" or preference.qq_birthday_checked:
             return preference
+        # M6：当天已尝试过（失败/未公开）则退避，不再重复打 QQ API
+        today = self._birthday_today_key()
+        if _QQ_BIRTHDAY_ATTEMPT_DATES.get(user_id) == today:
+            return preference
         lookup = await self._fetch_qq_birthday(event, user_id)
         if lookup.definitive:
             await self.checkin_store.mark_qq_birthday_checked(user_id)
+        else:
+            _QQ_BIRTHDAY_ATTEMPT_DATES[user_id] = today
         if lookup.value is not None:
             return await self.checkin_store.set_qq_birthday_if_not_manual(
                 user_id=user_id, month=lookup.value[0], day=lookup.value[1]
             )
         return await self.checkin_store.get_user_preference(user_id)
+
+    @staticmethod
+    def _birthday_today_key() -> str:
+        from datetime import datetime
+
+        return datetime.now().strftime("%Y-%m-%d")
 
     async def _get_checkin_user_title(self, user_id: str) -> str:
         store = self.checkin_store
@@ -603,7 +657,16 @@ class CheckinApplicationMixin:
             return QQBirthdayLookup(None, False)
 
     @staticmethod
-    def _checkin_profile_from_record(record: CheckinRecord) -> CheckinProfile:
+    def _checkin_profile_from_record(
+        record: CheckinRecord,
+        boost_start_date: str = "",
+        boost_until_date: str = "",
+    ) -> CheckinProfile:
+        """从签到记录构建卡片用 profile 快照
+
+        record 不携带加持（boost）起止日期，调用方应传入真实 profile 的日期
+        （store.get_profile），否则卡片「加持剩余天数」恒为 0。
+        """
         return CheckinProfile(
             user_id=record.user_id,
             coins=record.total_coins_after,
@@ -611,8 +674,8 @@ class CheckinApplicationMixin:
             total_days=record.total_days_after,
             streak_days=record.streak_days_after,
             last_checkin_date=record.date_key,
-            boost_start_date="",
-            boost_until_date="",
+            boost_start_date=boost_start_date,
+            boost_until_date=boost_until_date,
             repeat_penalty_date="",
             repeat_penalty_total=0.0,
             created_at=record.created_at,

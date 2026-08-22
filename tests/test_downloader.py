@@ -53,6 +53,8 @@ def _downloader_with(resp) -> ImageDownloader:
     downloader = ImageDownloader()
     # 替换 session 工厂，避免真实建立 aiohttp 连接
     downloader._ensure_session = lambda: _FakeSession(resp)  # type: ignore[assignment]
+    # 假主机名（http://x/a.png）无法通过 SSRF 公网预检，单测关闭该检查
+    downloader._ssrf_check_enabled = False
     return downloader
 
 

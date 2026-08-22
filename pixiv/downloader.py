@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 import os
 import re
+import socket
 import tempfile
 import time
 from collections.abc import Iterable
@@ -18,6 +20,50 @@ MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024
 MAX_PROXY_ORIGINS = 5
 MAX_DOWNLOAD_ATTEMPTS = 8
 _LOG_URL_PATTERN = re.compile(r"https?://\S+", re.IGNORECASE)
+
+# SSRF 防护：禁止访问私网/环回/链路本地等非公网地址（防止 lolicon_api_url 等被配置为内网服务后拉取内网资源）
+_NON_PUBLIC_NETS = (
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+    ipaddress.ip_network("fe80::/10"),
+)
+
+
+async def _is_private_host(host: str) -> bool:
+    """解析主机名为 IP 并判断是否为非公网地址（SSRF 防护）
+
+    解析失败（域名不存在/网络异常）按「不安全」处理，返回 True 拒绝下载。
+    """
+    if not host:
+        return True
+    try:
+        loop = asyncio.get_running_loop()
+        infos = await loop.getaddrinfo(host, None)
+    except (socket.gaierror, OSError):
+        return True
+    for _family, *_rest, sockaddr in infos:
+        try:
+            ip = ipaddress.ip_address(sockaddr[0])
+        except ValueError:
+            continue
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+            return True
+        if any(ip in net for net in _NON_PUBLIC_NETS):
+            return True
+    return False
+
+
+def _host_of(url: str) -> str:
+    try:
+        return urlsplit(url).hostname or ""
+    except ValueError:
+        return ""
+
 
 ALLOWED_PIXIV_IMAGE_HOSTS = frozenset(
     {
@@ -47,6 +93,19 @@ PIXIV_HEADERS = {
     "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     "Referer": "https://www.pixiv.net/",
 }
+
+# 无 Pixiv Referer 的基础请求头（非 Pixiv 主机使用）
+PIXIV_BASE_HEADERS = {
+    "User-Agent": PIXIV_HEADERS["User-Agent"],
+}
+
+
+def _is_pixiv_image_host(host: str) -> bool:
+    """清理项：判断目标主机是否为 Pixiv 系图片主机（仅此类附带 Pixiv Referer）。"""
+    lowered = host.casefold()
+    if lowered in ALLOWED_PIXIV_IMAGE_HOSTS:
+        return True
+    return lowered.endswith(".pixiv.net") or lowered.endswith(".pixiv.re")
 
 
 def _too_large_error(size_bytes: float) -> RuntimeError:
@@ -184,6 +243,9 @@ class ImageDownloader:
     def __init__(self, lolicon_image_proxy_origins: object = ""):
         self._session: aiohttp.ClientSession | None = None
         self.lolicon_image_proxy_origins = parse_proxy_origins(lolicon_image_proxy_origins)
+        # 测试接缝：单测用假 session + 假主机名（如 http://x/a.png）时关闭 SSRF
+        # 预检；生产路径恒为 True（默认开启）。
+        self._ssrf_check_enabled = True
         logger.debug(
             f"{LOG_PREFIX} Lolicon 图片反代配置已加载: "
             f"valid_origins={len(self.lolicon_image_proxy_origins)} "
@@ -210,16 +272,30 @@ class ImageDownloader:
                 suffix = ext
                 break
 
+        # SSRF 防护：预检目标主机；重定向后再次校验最终主机（防跳转私网）
+        if self._ssrf_check_enabled and await _is_private_host(_host_of(url)):
+            raise RuntimeError("blocked: target host is not a public address")
         fd = -1
         path = ""
         try:
+            # 清理项：仅 Pixiv 系主机附带 Pixiv Referer，非 Pixiv CDN（Lolicon
+            # 反代等）携带 Pixiv Referer 可能被个别 CDN 拒绝
+            headers = PIXIV_HEADERS if _is_pixiv_image_host(_host_of(url)) else PIXIV_BASE_HEADERS
             async with session.get(
                 url,
-                headers=PIXIV_HEADERS,
+                headers=headers,
                 timeout=client_timeout,
             ) as resp:
                 if resp.status != 200:
                     raise RuntimeError(f"HTTP {resp.status}")
+                final_url_obj = getattr(resp, "url", None)
+                final_url = str(final_url_obj) if final_url_obj is not None else url
+                if (
+                    self._ssrf_check_enabled
+                    and final_url != url
+                    and await _is_private_host(_host_of(final_url))
+                ):
+                    raise RuntimeError("blocked: redirected to a non-public address")
                 # 快速路径：服务器已声明体积且超限，直接拒绝
                 content_length = resp.content_length
                 if content_length and content_length > MAX_DOWNLOAD_BYTES:

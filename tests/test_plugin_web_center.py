@@ -48,9 +48,17 @@ async def _build_client(tmp_path: Path):
 
 @pytest.fixture
 async def web_center(tmp_path):
-    client, bot = await _build_client(tmp_path)
-    with client:
-        yield client, bot
+    # 隔离数据目录：避免测试写入默认 data_root（污染 CE 开发数据 / 残留导致断言失真）
+    from bot.paths import data_root, set_data_root
+
+    prev = data_root()
+    set_data_root(tmp_path / "data")
+    try:
+        client, bot = await _build_client(tmp_path)
+        with client:
+            yield client, bot
+    finally:
+        set_data_root(prev)
 
 
 async def test_web_center_routes_and_page(web_center):

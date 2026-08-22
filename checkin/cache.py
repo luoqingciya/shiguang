@@ -369,6 +369,9 @@ def _card_jpeg_rejection_reason(path: Path, expected_size: tuple[int, int]) -> s
                 return "size_mismatch"
             image.verify()
         return None
+    except ImportError:
+        # 缺 Pillow：跳过校验（与函数注释意图一致），不吞成损坏
+        return None
     except (OSError, ValueError):
         return "corrupt_or_unreadable"
 

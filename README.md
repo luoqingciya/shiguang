@@ -106,7 +106,7 @@ git clone https://gitee.com/luoqingciya/shiguang.git
 | `checkin_enabled` | true | 签到功能开关 |
 | `rate_limit_seconds` | 3 | 请求频率限制（秒） |
 
-完整配置项见 `_conf_schema.json`（WebUI 表单来源）。
+完整配置项见 `ShiguangPlugin.Config`（`__init__.py` 内 pydantic 模型，WebUI 表单 schema 来源；原 `_conf_schema.json` 已删除）。
 
 ## 说明
 

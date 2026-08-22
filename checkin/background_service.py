@@ -137,13 +137,34 @@ class CheckinBackgroundService:
                     self.host._record_checkin_render_tier(record)
                 ).background_quality
             )
-            path, actual_quality, file_size = await self.host.downloader.download_for_send(
-                illust,
-                background_quality,
-                timeout=timeout_sec,
-                downgrade_limit_bytes=0,
-                log_context=f"[签到背景恢复] 作品 {record.background_illust_id}",
-            )
+            # 清理项：恢复背景前先 claim，防止两个用户并发恢复同一插画重复下载
+            claims_enabled = bool(self.host._checkin_background_claims_enabled())
+            claimed = False
+            if claims_enabled:
+                claimed = await self.claim_usage(
+                    event, record.background_source, record.background_illust_id
+                )
+                if not claimed:
+                    logger.debug(
+                        f"{LOG_PREFIX} 签到背景恢复跳过: reason=already_claimed "
+                        f"illust_id={record.background_illust_id}"
+                    )
+                    return replace(saved, mode="fallback")
+            background_ready = False
+            try:
+                path, actual_quality, file_size = await self.host.downloader.download_for_send(
+                    illust,
+                    background_quality,
+                    timeout=timeout_sec,
+                    downgrade_limit_bytes=0,
+                    log_context=f"[签到背景恢复] 作品 {record.background_illust_id}",
+                )
+                background_ready = True
+            finally:
+                if claimed and not background_ready:
+                    await self.release_usage(
+                        event, record.background_source, record.background_illust_id
+                    )
             logger.debug(
                 f"{LOG_PREFIX} 签到背景恢复完成: mode=pixiv_daily "
                 f"source={source.partition(':')[0] or 'unknown'} "

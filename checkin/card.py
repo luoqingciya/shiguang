@@ -35,6 +35,11 @@ _FONT_PATH = (
 _SEASON_SHARED_DIR = _PLUGIN_ROOT / "templates" / "checkin_themes" / "_shared"
 _SEASON_ART_MARKER = "<!--__CHECKIN_CARD_ARTWORK__-->"
 
+# M2：背景图 data URL 缓存（path, mtime_ns, size）→ base64 结果。
+# 渲染降档最多 3 档，每档都会重建视图模型并编码同一背景图；该缓存
+# 让同一次签到的后续档位直接命中，避免重复读盘 + base64。
+_DATA_URL_CACHE: dict[tuple[str, int, int], str] = {}
+
 
 @lru_cache(maxsize=16)
 def get_checkin_card_template(theme_id: str = DEFAULT_CHECKIN_THEME_ID) -> str:
@@ -341,8 +346,25 @@ def _file_to_data_url(path: str) -> str:
     if not path:
         return ""
     file_path = Path(path)
-    if not file_path.is_file():
+    try:
+        stat = file_path.stat()
+    except OSError:
         return ""
+    # M2：跨渲染档位复用同一背景图时避免重复「读盘 + base64」。
+    # 以 (path, mtime_ns, size) 为键：文件内容变化时自然失效；只缓存成功结果，
+    # 解码异常仍照常抛出以触发渲染降档。
+    cache_key = (str(file_path), stat.st_mtime_ns, stat.st_size)
+    cached = _DATA_URL_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    data_url = _encode_image_data_url(file_path)
+    _DATA_URL_CACHE[cache_key] = data_url
+    if len(_DATA_URL_CACHE) > 64:
+        _DATA_URL_CACHE.clear()
+    return data_url
+
+
+def _encode_image_data_url(file_path: Path) -> str:
     try:
         from io import BytesIO
 

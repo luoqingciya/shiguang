@@ -106,9 +106,6 @@ class EventAdapter:
     def get_sender_name(self) -> str:
         return str(self._ctx.sender_name or "")
 
-    def get_message_str(self) -> str:
-        return str(self._ctx.plain_text or self._ctx.raw_message or "")
-
     def is_group(self) -> bool:
         return bool(self.get_group_id())
 
@@ -233,11 +230,6 @@ def _components_to_segments(content: list[Any]) -> list[dict]:
         else:
             segments.append({"type": "text", "data": {"text": str(component)}})
     return segments
-
-
-def components_to_segments(content: list[Any]) -> list[dict]:
-    """导出：供入口 handler 把 chain_result 转 v12 段数组（返回/发送）"""
-    return _components_to_segments(content)
 
 
 def result_to_reply(result: _Result) -> str | list[dict] | None:

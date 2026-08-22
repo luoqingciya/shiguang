@@ -628,54 +628,90 @@ class RecordStoreMixin:
         self, date_key: str, now: str, user_id: str, days: int
     ) -> BoostPurchaseResult:
         cost = BOOST_PRODUCTS[days]
-        profile = self._get_or_create_profile_sync(user_id)
-        if profile.coins < cost:
-            return BoostPurchaseResult(
-                success=False,
-                profile=profile,
-                days=days,
-                cost=cost,
-                message=f"金币不足，需要 {cost}，当前只有 {profile.coins}。",
-            )
-
-        today = date.fromisoformat(date_key)
-        signed_today = profile.last_checkin_date == date_key
-        requested_start = today + timedelta(days=1 if signed_today else 0)
-        current_until = _parse_date(profile.boost_until_date)
-        current_start = _parse_date(profile.boost_start_date)
-        if current_until is not None and current_until >= requested_start:
-            start_date = current_start or requested_start
-            until_date = current_until + timedelta(days=days)
-        else:
-            start_date = requested_start
-            until_date = requested_start + timedelta(days=days - 1)
-
+        # M7：余额读取与扣款放入同一 BEGIN IMMEDIATE 事务，消除 TOCTOU。
+        # 原实现先在外层连接读 profile 再 UPDATE，仅靠全局 asyncio 锁兜底，
+        # 一旦绕过锁（Web 直连/多实例）可能出现并发超扣。
         with closing(self._connect()) as conn:
-            remaining = profile.coins - cost
-            conn.execute(
-                """
-                UPDATE checkin_users
-                SET coins = ?, boost_start_date = ?, boost_until_date = ?,
-                    updated_at = ?
-                WHERE user_id = ?
-                """,
-                (
-                    remaining,
-                    start_date.isoformat(),
-                    until_date.isoformat(),
-                    now,
-                    user_id,
-                ),
-            )
-            conn.execute(
-                """
-                UPDATE checkin_records
-                SET total_coins_after = ?, updated_at = ?
-                WHERE date_key = ? AND user_id = ?
-                """,
-                (remaining, now, date_key, user_id),
-            )
-            conn.commit()
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                row = conn.execute(
+                    "SELECT * FROM checkin_users WHERE user_id = ?", (user_id,)
+                ).fetchone()
+                if row is None:
+                    conn.execute(
+                        """
+                        INSERT INTO checkin_users (
+                            user_id, coins, affection, total_days, streak_days,
+                            last_checkin_date, boost_start_date, boost_until_date,
+                            repeat_penalty_date, repeat_penalty_total,
+                            created_at, updated_at
+                        )
+                        VALUES (?, 0, 0, 0, 0, '', '', '', '', 0, ?, ?)
+                        """,
+                        (user_id, now, now),
+                    )
+                    conn.execute(
+                        """
+                        INSERT INTO checkin_user_themes
+                            (user_id, theme_id, price_paid, acquired_at)
+                        VALUES (?, 'default', 0, ?)
+                        """,
+                        (user_id, now),
+                    )
+                    row = conn.execute(
+                        "SELECT * FROM checkin_users WHERE user_id = ?", (user_id,)
+                    ).fetchone()
+                profile = self._row_to_profile(row)
+                if profile.coins < cost:
+                    conn.rollback()
+                    return BoostPurchaseResult(
+                        success=False,
+                        profile=profile,
+                        days=days,
+                        cost=cost,
+                        message=f"金币不足，需要 {cost}，当前只有 {profile.coins}。",
+                    )
+
+                today = date.fromisoformat(date_key)
+                signed_today = profile.last_checkin_date == date_key
+                requested_start = today + timedelta(days=1 if signed_today else 0)
+                current_until = _parse_date(profile.boost_until_date)
+                current_start = _parse_date(profile.boost_start_date)
+                if current_until is not None and current_until >= requested_start:
+                    start_date = current_start or requested_start
+                    until_date = current_until + timedelta(days=days)
+                else:
+                    start_date = requested_start
+                    until_date = requested_start + timedelta(days=days - 1)
+
+                remaining = profile.coins - cost
+                conn.execute(
+                    """
+                    UPDATE checkin_users
+                    SET coins = ?, boost_start_date = ?, boost_until_date = ?,
+                        updated_at = ?
+                    WHERE user_id = ?
+                    """,
+                    (
+                        remaining,
+                        start_date.isoformat(),
+                        until_date.isoformat(),
+                        now,
+                        user_id,
+                    ),
+                )
+                conn.execute(
+                    """
+                    UPDATE checkin_records
+                    SET total_coins_after = ?, updated_at = ?
+                    WHERE date_key = ? AND user_id = ?
+                    """,
+                    (remaining, now, date_key, user_id),
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
 
         updated = self._get_or_create_profile_sync(user_id)
         start_label = "今天" if start_date == today else start_date.isoformat()

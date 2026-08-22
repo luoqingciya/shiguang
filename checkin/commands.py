@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import logging
-import re
 import time
 from dataclasses import replace
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from .._event import EventAdapter, File, Image, Plain
@@ -133,23 +132,18 @@ class CheckinCommandMixin:
             pass
 
     async def _read_uploaded_file_bytes(self, upload) -> bytes:
-        filename = str(getattr(upload, "filename", "") or "").strip() or "upload.json"
-        safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(filename).name)
-        temp_path = self._checkin_backup_dir() / f".upload-{time.time_ns()}-{safe_name}"
         content_length = getattr(upload, "content_length", None)
         if isinstance(content_length, int) and content_length > MAX_CHECKIN_BACKUP_BYTES:
             raise ValueError("签到备份文件不能超过 5 MiB")
-        try:
-            total = 0
-            with temp_path.open("xb") as handle:
-                while chunk := upload.stream.read(64 * 1024):
-                    total += len(chunk)
-                    if total > MAX_CHECKIN_BACKUP_BYTES:
-                        raise ValueError("签到备份文件不能超过 5 MiB")
-                    handle.write(chunk)
-            return temp_path.read_bytes()
-        finally:
-            cleanup(str(temp_path))
+        # 清理项：边读边校验上限并累积 bytes，替代「先落盘再读回」的双倍内存峰值
+        chunks: list[bytes] = []
+        total = 0
+        while chunk := upload.stream.read(64 * 1024):
+            total += len(chunk)
+            if total > MAX_CHECKIN_BACKUP_BYTES:
+                raise ValueError("签到备份文件不能超过 5 MiB")
+            chunks.append(chunk)
+        return b"".join(chunks)
 
     async def _handle_checkin_preview(self, event: EventAdapter):
         if self.checkin_store is None:
@@ -227,7 +221,11 @@ class CheckinCommandMixin:
             greeting_attribution=attribution,
             secondary_note=content.secondary_note,
         )
-        preview_profile = self._checkin_profile_from_record(record)
+        preview_profile = self._checkin_profile_from_record(
+            record,
+            boost_start_date=profile.boost_start_date,
+            boost_until_date=profile.boost_until_date,
+        )
         result = CheckinResult(
             profile=preview_profile,
             record=record,
@@ -393,7 +391,12 @@ class CheckinCommandMixin:
             return lines[0] + "\n还没有签到记录"
         for entry in entries:
             if ranking_type == "today":
-                value = str(entry["value"])[11:19]
+                # 清理项：不依赖 ISO 字符串切片，用 fromisoformat 解析（失败回退原切片）
+                try:
+                    parsed_time = datetime.fromisoformat(str(entry["value"]))
+                    value = parsed_time.strftime("%H:%M:%S")
+                except ValueError:
+                    value = str(entry["value"])[11:19]
             else:
                 value = f"{entry['value']}{units[ranking_type]}"
             lines.append(f"{entry['rank']:>2}. {entry['username']}  {value}")

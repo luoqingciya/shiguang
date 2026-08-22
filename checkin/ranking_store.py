@@ -10,9 +10,11 @@ RANKING_TYPES = {"today", "month", "streak", "total"}
 
 
 class RankingStoreMixin:
+    # M5：以下纯读操作不持有全局写锁（WAL 模式读不阻塞写、写不阻塞读），
+    # 避免大群排行/趋势等长查询阻塞所有用户的签到写入。
+
     async def list_checkin_groups(self) -> list[dict[str, object]]:
-        async with self._lock:
-            return await asyncio.to_thread(self._list_checkin_groups_sync)
+        return await asyncio.to_thread(self._list_checkin_groups_sync)
 
     async def get_group_ranking(
         self,
@@ -36,26 +38,23 @@ class RankingStoreMixin:
         except ValueError as exc:
             raise ValueError("month must use YYYY-MM") from exc
         limit = max(1, min(int(limit), 100))
-        async with self._lock:
-            return await asyncio.to_thread(
-                self._get_group_ranking_sync,
-                group_id,
-                ranking_type,
-                month,
-                limit,
-            )
+        return await asyncio.to_thread(
+            self._get_group_ranking_sync,
+            group_id,
+            ranking_type,
+            month,
+            limit,
+        )
 
     async def get_group_trend(self, *, group_id: str, days: int = 7) -> list[dict[str, object]]:
         group_id = str(group_id or "").strip()
         if not group_id:
             raise ValueError("group_id is required")
         days = 30 if int(days) == 30 else 7
-        async with self._lock:
-            return await asyncio.to_thread(self._get_group_trend_sync, group_id, days)
+        return await asyncio.to_thread(self._get_group_trend_sync, group_id, days)
 
     async def get_checkin_overview(self) -> dict[str, int]:
-        async with self._lock:
-            return await asyncio.to_thread(self._get_checkin_overview_sync)
+        return await asyncio.to_thread(self._get_checkin_overview_sync)
 
     def _list_checkin_groups_sync(self) -> list[dict[str, object]]:
         today = self.today_key()
@@ -82,15 +81,27 @@ class RankingStoreMixin:
         self, group_id: str, ranking_type: str, month: str, limit: int
     ) -> dict[str, object]:
         today = self.today_key()
+        # M4：today/month 用 SQL WHERE 下推日期过滤，避免大群全表扫描读入内存；
+        # streak/total 需要全部历史日期，保持全量读取。
+        where_clauses = ["group_id = ?"]
+        params: list[object] = [group_id]
+        if ranking_type == "today":
+            where_clauses.append("date_key = ?")
+            params.append(today)
+        elif ranking_type == "month":
+            where_clauses.append("date_key >= ?")
+            params.append(f"{month}-01")
+            where_clauses.append("date_key <= ?")
+            params.append(f"{month}-31")
         with closing(self._connect()) as conn:
             rows = conn.execute(
-                """
+                f"""
                 SELECT date_key, user_id, username, first_seen_at, last_seen_at
                 FROM checkin_group_presence
-                WHERE group_id = ?
+                WHERE {" AND ".join(where_clauses)}
                 ORDER BY date_key, first_seen_at, user_id
                 """,
-                (group_id,),
+                tuple(params),
             ).fetchall()
         grouped: dict[str, list[dict[str, object]]] = {}
         for row in rows:

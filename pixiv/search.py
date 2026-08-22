@@ -13,6 +13,10 @@ logger = logging.getLogger(__name__)
 LOG_PREFIX = "[GetPx]"
 DEFAULT_AUTO_DOWNGRADE_ORIGINAL_LIMIT_MB = 3.0
 
+# M12：多图下载总时间预算。严格串行下载（每张最长 request_timeout，默认 30s）时，
+# max_count=20 最坏可阻塞数十分钟；超预算中止剩余下载，已成功部分照常发送。
+SEARCH_DOWNLOAD_TOTAL_TIMEOUT_SECONDS = 180.0
+
 
 def _search_quality_label(value: object) -> str:
     return {
@@ -191,8 +195,10 @@ class SearchMixin:
         filter_manga = self._cfg_bool("filter_manga", True)
 
         # 获取作品列表：Lolicon 主源，Pixiv 搜索/推荐回退。
+        # M13：候选数按用户所需取 max(count, 3)（封顶 max_count），
+        # 避免只要 1 张也向上游要 5/20 张浪费配额。
         illusts, raw_count, source_key = await self._fetch_source_candidates(
-            event, tag, count=max_count
+            event, tag, count=min(max_count, max(count, 3))
         )
         logger.info(
             f"{LOG_PREFIX} 搜索候选获取完成: "
@@ -252,18 +258,32 @@ class SearchMixin:
         # 下载所有图片
         downloaded: list[tuple[dict, str, str, int]] = []
         temp_paths: list[str] = []
+        # M12：总时间预算（asyncio.wait_for 逐张限制剩余时间，兼容 Python 3.10）
+        download_deadline = (
+            asyncio.get_running_loop().time() + SEARCH_DOWNLOAD_TOTAL_TIMEOUT_SECONDS
+        )
         try:
             for idx, illust in enumerate(chosen, 1):
+                remaining = download_deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    logger.warning(
+                        f"{LOG_PREFIX} 多图下载总时长超预算，中止剩余下载: "
+                        f"budget_seconds={SEARCH_DOWNLOAD_TOTAL_TIMEOUT_SECONDS}"
+                    )
+                    break
                 illust_id = illust.get("id", "?")
                 title = illust.get("title", "无标题")
 
                 try:
-                    path, actual_q, file_size = await self.downloader.download_for_send(
-                        illust,
-                        quality,
-                        timeout=timeout_sec,
-                        downgrade_limit_bytes=downgrade_limit_bytes,
-                        log_context=f"[{idx}/{pick_count}] 作品 {illust_id}",
+                    path, actual_q, file_size = await asyncio.wait_for(
+                        self.downloader.download_for_send(
+                            illust,
+                            quality,
+                            timeout=timeout_sec,
+                            downgrade_limit_bytes=downgrade_limit_bytes,
+                            log_context=f"[{idx}/{pick_count}] 作品 {illust_id}",
+                        ),
+                        timeout=remaining,
                     )
                     logger.debug(
                         f"{LOG_PREFIX} [{idx}/{pick_count}] 作品 {illust_id} "
@@ -337,44 +357,30 @@ class SearchMixin:
                             ],
                         )
                     )
-                # 合并转发（带重试机制）
-                max_retries = 3
+                # 合并转发（M11：重试收敛到事件层 `_send_forward` 单层，
+                # 避免 search 外层 × _send_forward 内层双重嵌套最坏 9 次尝试）
                 forward_success = False
-                for attempt in range(1, max_retries + 1):
-                    try:
-                        await event.send(event.chain_result([nodes]))
-                        sent_illust_ids.update(
-                            str(illust.get("id") or "")
-                            for illust, *_rest in downloaded
-                            if illust.get("id")
-                        )
-                        logger.info(
-                            f"{LOG_PREFIX} 合并转发 {len(nodes.nodes)} 条作品"
-                            + (f" (第{attempt}次尝试)" if attempt > 1 else "")
-                        )
-                        forward_success = True
-                        break
-                    except Exception as e:
-                        if attempt < max_retries:
-                            wait_sec = attempt * 2
-                            logger.info(
-                                f"{LOG_PREFIX} 合并转发失败，准备重试: "
-                                f"attempt={attempt}/{max_retries} "
-                                f"retry_after_seconds={wait_sec} "
-                                f"error_type={type(e).__name__}"
-                            )
-                            await asyncio.sleep(wait_sec)
-                        else:
-                            friendly_err = self._friendly_send_error(e)
-                            logger.warning(
-                                f"{LOG_PREFIX} 合并转发失败，降级为逐条发送: "
-                                f"attempts={max_retries} reason={friendly_err} "
-                                f"error_type={type(e).__name__}"
-                            )
+                try:
+                    await event.send(event.chain_result([nodes]))
+                    sent_illust_ids.update(
+                        str(illust.get("id") or "")
+                        for illust, *_rest in downloaded
+                        if illust.get("id")
+                    )
+                    logger.info(f"{LOG_PREFIX} 合并转发 {len(nodes.nodes)} 条作品")
+                    forward_success = True
+                except Exception as e:
+                    friendly_err = self._friendly_send_error(e)
+                    logger.warning(
+                        f"{LOG_PREFIX} 合并转发失败，降级为逐条发送: "
+                        f"reason={friendly_err} "
+                        f"error_type={type(e).__name__}"
+                    )
 
                 # 合并转发失败，降级为逐条发送
                 if not forward_success:
                     await event.send(event.plain_result("⚠️ 合并转发失败，正在逐条发送..."))
+                    max_retries = 3
                     for illust, path, _actual_q, _file_size in downloaded:
                         title = illust.get("title", "无标题")
                         illust_id = illust.get("id", "?")

@@ -38,10 +38,11 @@ class HolidayCalendar:
 
     def should_refresh(self, *, now: datetime | None = None) -> bool:
         now = now or datetime.now(timezone.utc)
-        if self._within_retry_window(now):
-            return False
+        # 清理项：插件版本不匹配优先强制刷新，避免重试窗口压制升级后的数据刷新
         if self._state.get("plugin_version") != self.plugin_version:
             return True
+        if self._within_retry_window(now):
+            return False
         years = self._state.get("years", [])
         if not isinstance(years, list) or now.year not in years:
             return True
