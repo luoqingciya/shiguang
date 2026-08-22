@@ -119,3 +119,35 @@ async def test_checkin_groups_empty(web_center):
     body = resp.json()
     assert body["success"] is True
     assert body["groups"] == []
+
+
+async def test_checkin_import_restore_roundtrip(web_center):
+    """P0 回归：multipart 上传恢复签到备份应成功（_web.py UploadFile 过滤修复）"""
+    client, _bot = web_center
+    # 先导出一份空库备份作为待恢复文件
+    exported = client.get("/api/plugin-web/shiguang/checkin-export")
+    assert exported.status_code == 200, exported.text
+    content = exported.content
+    assert b"schema_version" in content
+
+    resp = client.post(
+        "/api/plugin-web/shiguang/checkin-import",
+        files={"file": ("backup.json", content, "application/json")},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["success"] is True
+    assert "rollback_file" in body
+
+
+async def test_checkin_import_oversize_rejected(web_center):
+    """P3：超 5 MiB 上传在 Content-Length 预检处被拒绝，不进入解析"""
+    client, _bot = web_center
+    big = b"x" * (5 * 1024 * 1024 + 1024)
+    resp = client.post(
+        "/api/plugin-web/shiguang/checkin-import",
+        content=big,
+        headers={"content-type": "application/json"},
+    )
+    assert resp.status_code == 400
+    assert "5 MiB" in resp.json().get("error", "")

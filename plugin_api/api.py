@@ -35,6 +35,9 @@ except ImportError:  # Direct imports used by the test suite.
 
 logger = logging.getLogger(__name__)
 
+# P3：签到备份上传体积上限（与前端 backupFileError 的 5 MiB 一致）
+_MAX_CHECKIN_UPLOAD_BYTES = 5 * 1024 * 1024
+
 
 _REPORT_CSV_COLUMNS = (
     "群号",
@@ -429,7 +432,7 @@ class PluginWebApi:
                 str(path),
                 mimetype="text/csv",
                 as_attachment=True,
-                attachment_filename=filename,
+                download_name=filename,
             )
         except ValueError as exc:
             return jsonify({"success": False, "error": str(exc)}), 400
@@ -838,7 +841,7 @@ class PluginWebApi:
                 str(path),
                 mimetype="application/json",
                 as_attachment=True,
-                attachment_filename=path.name,
+                download_name=path.name,
             )
         except Exception as exc:
             return self.internal_error("导出签到备份", exc)
@@ -848,6 +851,15 @@ class PluginWebApi:
             return self._unavailable("签到数据尚未初始化")
         filename = ""
         try:
+            # P3：后端体积预检（前端已限 5 MiB；后端 multipart 解析会先把整
+            # 个 body 读入内存，Content-Length 超限直接拒绝，避免大文件打爆内存）
+            content_length = request.headers.get("content-length")
+            if content_length:
+                try:
+                    if int(content_length) > _MAX_CHECKIN_UPLOAD_BYTES:
+                        return jsonify({"success": False, "error": "备份文件不能超过 5 MiB"}), 400
+                except (TypeError, ValueError):
+                    pass
             files = await request.files
             uploaded = []
             for key in files.keys():
@@ -912,9 +924,11 @@ class PluginWebApi:
         if not data_dir:
             return ""
         backup_dir = Path(data_dir) / "checkin_backups"
+        # 仅统计用户手动导出的 checkin-export-* 备份，排除恢复操作自动生成的
+        # checkin-import-backup-* 回滚文件，避免"恢复回滚"被误显示为最近备份。
         try:
             latest = max(
-                (item for item in backup_dir.glob("*.json") if item.is_file()),
+                (item for item in backup_dir.glob("checkin-export-*.json") if item.is_file()),
                 key=lambda item: item.stat().st_mtime,
             )
         except (OSError, ValueError):

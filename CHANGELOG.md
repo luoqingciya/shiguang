@@ -2,6 +2,16 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.2.1] - 2026-08-22（备份恢复功能审查修复）
+
+### Fixed
+
+- **签到备份恢复完全失效（P0）**：`plugin_api/_web.py` 通用适配层用 `fastapi.UploadFile` 做类型过滤，但 `request.form()` 解析 multipart 产出的是 `starlette.datastructures.UploadFile`（FastAPI 类是其子类，反向 isinstance 恒 False）——所有上传文件被静默丢弃，管理中心恢复签到备份必报"缺少备份文件"。改为按 Starlette 基类过滤；补充 `request.headers` 代理（此前缺失导致体积预检 AttributeError）；新增「导出→上传恢复」roundtrip 回归测试
+- **签到备份版本白名单脆弱（P2）**：`validate_checkin_snapshot` 白名单写死 `(6, CURRENT)`，下次 schema 升级时历史备份会被误拒。改为区间策略 `MIN_SUPPORTED(6)..CURRENT`，升级后仍可导入旧备份
+- **恢复回滚文件污染"最近备份"（P3）**：`_latest_backup_at` 改为仅统计 `checkin-export-*` 手动导出，排除恢复自动生成的 `checkin-import-backup-*` 回滚文件
+- **`send_file(attachment_filename=...)` 弃用（P3）**：`_web.py` send_file 参数改 `download_name`，api.py 两处调用同步更新
+- **导入上传无后端体积限制（P3）**：`checkin_import` 增加 Content-Length 预检（超 5 MiB 直接 400），避免超大文件打爆内存
+
 ## [1.2.0] - 2026-08-22
 
 ### Added

@@ -15,6 +15,11 @@ from .models import (
 from .quality import DEFAULT_CHECKIN_RENDER_TIER, validate_checkin_render_tier
 from .themes import CHECKIN_THEMES
 
+# P2（备份恢复审查）：允许导入的历史备份最低版本（低于该版本视为不兼容，
+# 高于当前版本视为未来格式）。升级 schema 时只需保证 _normalize_*_row 仍能
+# 解析 MIN_SUPPORTED..CURRENT 之间的版本。
+MIN_SUPPORTED_SNAPSHOT_VERSION = 6
+
 
 def dump_checkin_snapshot_json(snapshot: dict[str, Any]) -> str:
     normalized = validate_checkin_snapshot(snapshot)
@@ -34,7 +39,10 @@ def validate_checkin_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(snapshot, dict):
         raise ValueError("签到备份数据必须是对象")
     schema_version = snapshot.get("schema_version")
-    if schema_version not in (6, CHECKIN_SNAPSHOT_SCHEMA_VERSION):
+    # P2 修复（备份恢复审查）：白名单写死 (6, CURRENT) 在下次升级 schema 时
+    # 会误拒历史备份；改为区间策略（MIN_SUPPORTED..CURRENT），升级后仍能导入
+    # 旧版本备份（由各 _normalize_*_row 按 schema_version 兼容解析）。
+    if not (MIN_SUPPORTED_SNAPSHOT_VERSION <= schema_version <= CHECKIN_SNAPSHOT_SCHEMA_VERSION):
         raise ValueError(
             f"不支持的签到备份版本: {schema_version!r}，"
             f"当前版本为 {CHECKIN_SNAPSHOT_SCHEMA_VERSION}"

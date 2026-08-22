@@ -15,8 +15,8 @@ from __future__ import annotations
 import contextvars
 from typing import Any
 
-from fastapi import UploadFile as _FastAPIUploadFile
 from fastapi.responses import FileResponse
+from starlette.datastructures import UploadFile as _StarletteUploadFile
 
 _current_request: contextvars.ContextVar[Any] = contextvars.ContextVar("shiguang_web_request")
 
@@ -59,10 +59,14 @@ class _Files:
         form = await self._request.form()
 
         # 清理项：表单可能含普通文本字段，仅适配真正的 UploadFile，避免
-        # 文本字段触发 AttributeError → 500
+        # 文本字段触发 AttributeError → 500。
+        # P0 修复（备份恢复审查）：request.form() 解析 multipart 产出的是
+        # starlette.datastructures.UploadFile（FastAPI UploadFile 是其子类），
+        # 必须用 Starlette 基类做 isinstance 过滤，否则所有上传文件被丢弃，
+        # 插件恢复上传必报"缺少备份文件"。
         def _getlist(key):
             return [
-                UploadAdapter(u) for u in form.getlist(key) if isinstance(u, _FastAPIUploadFile)
+                UploadAdapter(u) for u in form.getlist(key) if isinstance(u, _StarletteUploadFile)
             ]
 
         files = type("Form", (), {})()
@@ -104,6 +108,11 @@ class _RequestProxy:
         return _Files(_current_request.get())
 
     @property
+    def headers(self) -> Any:
+        """请求头（供 Content-Length 预检等读取）"""
+        return _current_request.get().headers
+
+    @property
     def json(self) -> Any:
         return getattr(_current_request.get(), "json", None)
 
@@ -122,10 +131,10 @@ async def send_file(
     path: str,
     mimetype: str | None = None,
     as_attachment: bool = False,
-    attachment_filename: str | None = None,
+    download_name: str | None = None,
     **kwargs: Any,
 ) -> FileResponse:
-    """FastAPI FileResponse；attachment_filename → filename
+    """FastAPI FileResponse；download_name 作为附件下载名
 
     async 定义以兼容原 quart 风格的 `await send_file(...)` 调用
     （quart 的 send_file 为协程函数；同步返回 FileResponse 会导致
@@ -134,7 +143,7 @@ async def send_file(
     return FileResponse(
         path,
         media_type=mimetype,
-        filename=attachment_filename if as_attachment else None,
+        filename=download_name if as_attachment else None,
         **kwargs,
     )
 
